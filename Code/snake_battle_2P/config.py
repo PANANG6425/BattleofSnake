@@ -64,7 +64,7 @@ WALL_MARGIN = 10                                # Half the head sprite: stops th
                                                 # sinking into the border wall
 START_LENGTH = 4
 GROW_PER_FRUIT = 1
-FRUIT_SCORE = 100
+FRUIT_SCORE = 50
 SKILL_MAX = 100
 
 # ===========================================
@@ -83,12 +83,17 @@ SPEED_2P = 3                                    # Slower - two snakes share one 
 SKILL_GAIN_2P = 25
 
 MAX_HP = 3
-TARGET_SCORE = 500
+TARGET_SCORE = 800
 ROUNDS_TO_WIN = 2                               # Rounds to take the match (best of 3)
 MAX_ROUNDS = ROUNDS_TO_WIN * 2 - 1              # Hard stop: a match of all draws would
                                                 # otherwise never reach ROUNDS_TO_WIN.
                                                 # Level on rounds here -> MVP decides,
                                                 # see screens.py match_champion()
+
+# Every heart still standing at the end of a round is worth this much MVP on its own,
+# so winning a round on hearts is never worth nothing even at a low score. MVP is
+# score x hp + SURVIVE_BONUS x hp - see screens.py mvp_total().
+SURVIVE_BONUS = 100
 
 # --- The one place score changes hands --------------------------------------
 # Collisions cost HEARTS, never points - except a head-to-head clash, where the snake

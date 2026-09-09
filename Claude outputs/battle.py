@@ -20,7 +20,7 @@ from config import (ARENA_2P, SPEED_2P, WALL_MARGIN, GROW_PER_FRUIT, FRUIT_SCORE
                     FRAME_MS, BG_COLOR, WALL_COLOR, OBSTACLE_FILL, OBSTACLE_EDGE,
                     TEXT_BRIGHT, TEXT_TAG, TEXT_DIM, TEXT_FAINT, HIGHLIGHT)
 from engine import (wn, go_to_scene, load_shape, new_pen, STATE,
-                    draw_skill_bar, fill_box, write_at)
+                    draw_skill_bar, fill_box, write_at, shape_turtle)
 from audio import sfx
 from entity import Snake, make_fruit, powers_flag, powers_effect, powers_hud_tags
 
@@ -37,11 +37,17 @@ OBSTACLE_PAD = 6                                # Collision margin around a box
 FRUIT_REACH = 18                                # How close counts as eating
 SPAWN_CLEAR = 60                                # Keep fruit away from a head
 OBSTACLE_CLEAR = 20                             # Keep fruit out of a box
+BODY_CLEAR = 24                                 # Keep fruit off either snake's body
 
 HEART_Y = 250
 HEART_STEP = 22
 BAR_W, BAR_H = 132, 12
 BAR_Y = 224
+ICON_GAP = 22                                   # Power icon, just outside the skill bar
+ICON_SIZE = 0.9
+TAG_LIFT = 20                                   # STUN / power tag floats this far above
+                                                # the head - on the snake, where you are
+                                                # actually looking, not up in the HUD
 PANEL = {
     'P1': {'x': -356, 'dir': 1, 'align': 'left',  'bar_x': -358},
     'P2': {'x': 356,  'dir': -1, 'align': 'right', 'bar_x': 358 - BAR_W},
@@ -113,6 +119,11 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
                 continue
             if any(pl.head.distance(x, y) < SPAWN_CLEAR for pl in players):
                 continue
+            # Heads are not enough: a fruit on a BODY segment costs the eater a heart
+            # through resolve_self_collision. solo.py has always checked this.
+            if any((px - x) ** 2 + (py - y) ** 2 < BODY_CLEAR ** 2
+                   for pl in players for px, py in pl.segments()):
+                continue
             # Keep fruits apart, or two land together and one touch scores both.
             if any(f is not skip and f.distance(x, y) < FRUIT_MIN_GAP for f in fruits):
                 continue
@@ -148,6 +159,16 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
                 icon.goto(geo['x'] + geo['dir'] * i * HEART_STEP, HEART_Y)
                 pool.append(icon)
             heart_icons[pl.slot] = pool
+
+    # The power each player CHOSE, pinned beside their bar. It never changes during a
+    # round, so it is a plain shape turtle: no per-frame drawing, and it tells you what
+    # your Q / O key will fire without reading any text.
+    power_icons = []
+    for pl in players:
+        geo = PANEL[pl.slot]
+        icon_x = geo['bar_x'] + (BAR_W + ICON_GAP if geo['dir'] > 0 else -ICON_GAP)
+        power_icons.append(
+            shape_turtle(pl.power['icon'], icon_x, BAR_Y + BAR_H / 2, size=ICON_SIZE))
 
     # ===========================================
     # SECTION 4: INPUT HANDLING
@@ -212,7 +233,7 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
         snake.commit(x, y)
         return True
 
-    def punish(loser):
+    def punish(loser, hp=1):
         """One knockdown: HP only. Nothing here ever touches the score.
 
         Score moves in exactly ONE place in the whole game - a head-to-head clash,
@@ -227,7 +248,7 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
             return False
         if powers_flag(loser, 'invincible'):    # SHIELD
             return False
-        loser.hp -= 1
+        loser.hp -= hp
         loser.invuln = INVULN_FRAMES
         loser.stun = STUN_FRAMES
         sfx.play('hit')
@@ -263,6 +284,11 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
             share = int(loser.score * SCORE_TRANSFER)
             loser.score -= share
             winner.score += share
+            # The loser is now stunned exactly where the heads met, so the winner's head
+            # is touching its neck. Without this the very next resolve_bite() charged
+            # the winner a heart for the clash it had just won - the opposite of the
+            # rule that the lower score pays nothing.
+            winner.bite_grace = STUN_FRAMES
 
     def resolve_bite(biter, victim):
         """Biting ANY part of the other snake costs the BITER a heart - and only that.
@@ -273,6 +299,8 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
         bite is a pure HP punishment.
         """
         if biter.hp <= 0 or victim.hp <= 0:
+            return
+        if biter.bite_grace > 0:                # Just won a head clash - see there
             return
         for pos in victim.segments():
             if biter.head.distance(pos) < HIT_RADIUS:
@@ -302,7 +330,7 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
                 snake.stun = STUN_FRAMES
                 snake.self_hit_grace = STUN_FRAMES + SELF_HIT_GRACE_EXTRA
                 if SELF_HIT_DAMAGE:
-                    punish(snake)               # HP only - a fumble costs no score
+                    punish(snake, SELF_HIT_DAMAGE)   # HP only, a fumble costs no score
                 return
 
     def resolve_fruit(snake):
@@ -350,13 +378,20 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
             draw_skill_bar(bar_pen, geo['bar_x'], BAR_Y, BAR_W, BAR_H,
                            pl.skill / SKILL_MAX, pl.color_main)
 
+            # STUN and the active-power tag ride ABOVE THE SNAKE, not next to the bar.
+            # Beside the bar they read as part of the skill meter, which is what made
+            # STUN confusing; over the head they are unmistakably about the snake.
             tags = powers_hud_tags(pl)          # One label per running power
             if pl.stun > 0:
                 tags.append('STUN')
             if tags:
-                write_at(hud, geo['bar_x'] + (BAR_W + 8 if geo['dir'] > 0 else -8),
-                         BAR_Y, ' '.join(tags), 10, TEXT_TAG,
-                         'left' if geo['dir'] > 0 else 'right')
+                # Keep the label inside the arena: centred text runs off the side walls,
+                # and near the ceiling it climbs into the skill-bar row, so flip it under
+                # the head up there instead.
+                tx = min(max(pl.head.xcor(), ARENA_L + 40), ARENA_R - 40)
+                ty = pl.head.ycor()
+                ty += TAG_LIFT if ty < ARENA_T - 40 else -TAG_LIFT - 8
+                write_at(hud, tx, ty, ' '.join(tags), 10, TEXT_TAG)
 
         write_at(hud, 0, 249, scoreline(round_wins), 16, HIGHLIGHT)       # Round tally,  1 - 0
         write_at(hud, 0, 228, 'FIRST TO {}  -  BEST OF {}'.format(
@@ -375,6 +410,8 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
         for pool in heart_icons.values():
             for icon in pool:
                 icon.hideturtle()
+        for icon in power_icons:                # Or they float over the result text
+            icon.hideturtle()
 
     def show_result(winner):
         """End of a round: bank the round, then hand off to the result screen.

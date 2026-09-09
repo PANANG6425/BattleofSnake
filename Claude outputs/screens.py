@@ -16,7 +16,8 @@ to turtles, for two reasons that are turtle limitations, not preference:
 from config import (CHARACTERS, CHAR_DEFAULTS, POWERS, POWER_DEFAULTS,
                     character, power, BG_MENU, PANEL_BG, CARD_BG, CARD_EDGE,
                     ARROW_COLOR, BUTTON_FILL, SLOT_COLOR, TEXT_BRIGHT, TEXT_MUTED,
-                    TEXT_FAINT, TEXT_DIM, HIGHLIGHT, ROUNDS_TO_WIN)
+                    TEXT_FAINT, TEXT_DIM, HIGHLIGHT, ROUNDS_TO_WIN,
+                    SURVIVE_BONUS)
 from engine import (wn, go_to_scene, new_pen, draw_label, filled_rect, rounded_card,
                     header_strip, inside_rect, shape_turtle, stroke_box, fill_box,
                     write_at, make_head_shape)
@@ -292,10 +293,11 @@ def character_select_scene(epoch, mode):
 # `rounds` is the match ledger: one dict per round played, holding each player's
 # score and the HP they finished the round with. MVP weights the two together:
 #
-#     MVP = score x HP left,  added up over every round
+#     MVP = score x HP left  +  SURVIVE_BONUS x HP left,  added up over every round
 #
 # so surviving a round counts as much as scoring in it, and a round you were knocked
-# out of is worth nothing no matter how many points you banked (score x 0 = 0).
+# out of is worth nothing no matter how many points you banked (everything is x 0).
+# The bonus is what stops a round won on hearts alone from being worth nothing.
 # Round wins still decide the match; MVP only breaks a tie on rounds.
 
 
@@ -303,8 +305,14 @@ def scoreline(round_wins):
     return 'P1  {} - {}  P2'.format(round_wins['P1'], round_wins['P2'])
 
 
+def _mvp(r, slot):
+    """One round's MVP for one player."""
+    hp = r['hp' + slot]
+    return (r[slot] + SURVIVE_BONUS) * hp
+
+
 def mvp_total(rounds, slot):
-    return sum(r[slot] * r['hp' + slot] for r in rounds)
+    return sum(_mvp(r, slot) for r in rounds)
 
 
 def match_champion(round_wins, rounds):
@@ -322,7 +330,8 @@ def match_champion(round_wins, rounds):
 
 def _cell(r, slot):
     """One player's round in the ledger, showing the whole sum."""
-    return '{} x {} = {}'.format(r[slot], r['hp' + slot], r[slot] * r['hp' + slot])
+    hp = r['hp' + slot]
+    return '{} x {} + {} = {}'.format(r[slot], hp, SURVIVE_BONUS * hp, _mvp(r, slot))
 
 
 def draw_result(pen, p1, p2, round_wins, rounds, final, winner):
@@ -344,7 +353,8 @@ def _draw_round(pen, p1, p2, round_wins, rounds, winner):
             winner.slot, winner.char_name), 18, winner.color_main)
     write_at(pen, 0, 50, scoreline(round_wins), 30, HIGHLIGHT)
 
-    write_at(pen, 0, 0, 'score x hp left = MVP', 12, TEXT_MUTED)
+    write_at(pen, 0, 0, 'score x hp + {} per hp left = MVP'.format(SURVIVE_BONUS),
+             12, TEXT_MUTED)
     write_at(pen, -14, -28, 'P1  ' + _cell(last, 'P1'), 15, p1.color_main, 'right')
     write_at(pen, 14, -28, _cell(last, 'P2') + '  P2', 15, p2.color_main, 'left')
     if len(rounds) > 1:                         # Round 1 would only repeat the line above
@@ -378,8 +388,8 @@ def _draw_match(pen, p1, p2, round_wins, rounds):
     col_r, col_1, col_2, col_w = -350, -60, 215, 370        # Ledger column edges
     y = 40
     write_at(pen, col_r, y, 'ROUND', 13, TEXT_MUTED, 'left')
-    write_at(pen, col_1, y, 'P1   score x hp = MVP', 13, p1.color_main, 'right')
-    write_at(pen, col_2, y, 'P2   score x hp = MVP', 13, p2.color_main, 'right')
+    write_at(pen, col_1, y, 'P1   score x hp + bonus = MVP', 13, p1.color_main, 'right')
+    write_at(pen, col_2, y, 'P2   score x hp + bonus = MVP', 13, p2.color_main, 'right')
     write_at(pen, col_w, y, 'WON BY', 13, TEXT_MUTED, 'right')
     for i, r in enumerate(rounds, 1):
         y -= 27
@@ -406,6 +416,6 @@ def _draw_match(pen, p1, p2, round_wins, rounds):
         write_at(pen, 0, y, 'rounds level {} - {}  ->  MVP decides the match'.format(
             round_wins['P1'], round_wins['P2']), 12, HIGHLIGHT)
     else:
-        write_at(pen, 0, y, 'MVP = score x hp left, summed - it only breaks a tie on '
-                 'rounds', 11, TEXT_FAINT)
+        write_at(pen, 0, y, 'MVP = (score + {}) x hp left, summed - it only breaks a '
+                 'tie on rounds'.format(SURVIVE_BONUS), 11, TEXT_FAINT)
     write_at(pen, 0, y - 30, 'Press R for a NEW MATCH     |     M for Menu', 12, TEXT_DIM)

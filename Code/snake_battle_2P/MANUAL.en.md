@@ -47,14 +47,14 @@ Organised to the **baseline kit format** (Sections 1-5). No file exceeds 500 lin
 Code/snake_battle_2P/
 ├── main.py            26   ← entry point, run this
 │
-├── config.py         192   Section 3  every constant + character and power registries
-├── engine.py         436   Section 1  the one Screen, sprites, scenes, drawing helpers
-├── entity.py         256   Section 2  the Snake both modes use + the power runtime
+├── config.py         197   Section 3  every constant + character and power registries
+├── engine.py         443   Section 1  the one Screen, sprites, scenes, drawing helpers
+├── entity.py         263   Section 2  the Snake both modes use + the power runtime
 ├── audio.py          281              non-blocking sound (silent when no files exist)
 │
-├── screens.py        411              Main Menu, Character Select, result screens
+├── screens.py        421              Main Menu, Character Select, result screens
 ├── solo.py           209              1 Player mode      Sections 2, 3, 4, 5
-├── battle.py         439              2 Player Battle     Sections 2, 3, 4, 5
+├── battle.py         476              2 Player Battle     Sections 2, 3, 4, 5
 │
 ├── make_sprites.py   138              sprite generator (a tool, not runtime; needs Pillow)
 └── assets/                            sprite *.gif (+ sounds/ if you add .wav)
@@ -107,6 +107,22 @@ roster. Keyboard works too:
 > **One power key per player**, whatever power they picked, because each player picks
 > exactly one. That is why the registry can grow past two powers without running out
 > of keys to bind.
+
+**Reading the 2P HUD**
+
+| What you see | Where | Means |
+|---|---|---|
+| hearts + name + score | top left / top right | HP and this round's score |
+| your coloured bar | under the name | the power meter, full at 100 |
+| **the power icon** | **beside the bar** | the power you picked — what `Q` / `O` will fire |
+| `P1  1 - 0  P2` | centre, gold | the round tally for the match |
+| `STUN` / `BOOST` / `CLOAK` | **floating over the snake** | that snake's state right now |
+
+> `STUN` used to sit beside the power bar, where it read as a state of the *skill* —
+> which is what made it confusing. It now floats over the snake's head, where you are
+> actually looking, and the icon of the power you chose took its place beside the bar.
+> The label flips to **below** the head automatically when the snake is near the top
+> wall, so it never collides with the HUD strip.
 
 ---
 
@@ -391,8 +407,9 @@ audio device must not take the game down.
 
 ## 7. Rules
 
-**Fruit** → +100 score (×2 with FEAST), +1 body segment, power bar up.
-2P keeps 2 fruits on the field, at least 40 px apart.
+**Fruit** → +`FRUIT_SCORE` (×2 with FEAST), +1 body segment, power bar up.
+2P keeps 2 fruits on the field, at least 40 px apart, and **never on either snake's
+body** (it used to be possible, and cost the eater a heart as a self-collision).
 
 **Outer wall / box** → 30-frame stun, direction reset to stop, the move is not
 committed (no HP lost). PHASE passes through boxes, but **the outer wall always stops
@@ -437,6 +454,11 @@ other collision costs hearts and leaves both players' scores completely alone.
 Body and tail are treated **identically**, on purpose: the old rule rewarded biting the
 tail, which worked against the whole point of the game.
 
+> **The clash winner is not charged for biting.** The loser is stunned exactly where
+> the heads met, so the winner's head is left touching its neck. The winner therefore
+> gets a 30-frame bite grace: it suppresses bite damage only, it is not invulnerability,
+> and once it expires biting the other snake's body costs a heart as usual.
+>
 > **One collision, one resolution.** After the transfer, who is "ahead" flips
 > immediately. Without a lock the next frame — heads still touching, the loser stunned
 > in place — would punish the snake that just *won* the clash. So the game skips the
@@ -459,26 +481,31 @@ the match.
 **Score resets every round** (both snakes start a round at 0), but the game keeps a
 record of each round so it can add up the whole match at the end.
 
-### MVP = score x HP survived
+### MVP = (score + survival bonus) x HP survived
 
 At the end of every round the game records two things per player: **the score they
-made that round** and **the HP they had left when it ended**. Then it multiplies them:
+made that round** and **the HP they had left when it ended**. Then:
 
 ```
-round MVP = round score x HP left
+round MVP = (round score + SURVIVE_BONUS) x HP left
 match MVP = every round added up
 ```
 
-The point of it: **a round you were knocked out of (HP = 0) is worth 0 MVP** however
-many points you banked, because `score x 0 = 0`. Bank 500 and then die and you carry
-away nothing. Surviving therefore weighs exactly as much as scoring.
+`SURVIVE_BONUS = 100` means **every heart still standing is worth 100 on its own.**
+It exists because winning a round on hearts alone at a low score used to be worth an
+MVP of 0, which does not reflect what happened; now finishing a round with 3 HP is
+worth at least 300.
+
+What has not changed: **a round you were knocked out of (HP = 0) is worth 0 MVP**
+however many points you banked, because everything is multiplied by 0. Bank 500 and
+then die and you carry away nothing. Surviving weighs exactly as much as scoring.
 
 | Round | Score | HP left | MVP |
 |---|---|---|---|
-| R1 | 400 | 3 | **1200** |
+| R1 | 400 | 3 | (400+100)x3 = **1500** |
 | R2 | 150 | 0 (knocked out) | **0** |
 | R3 | 300 | 0 (knocked out) | **0** |
-| Total | 850 | | **1200** |
+| Total | 850 | | **1500** |
 
 ### When MVP counts — it breaks a tie
 
@@ -504,9 +531,9 @@ played and nobody reached 2: one round each plus a draw (1 - 1), or three draws 
 
               P1  1 - 1  P2
 
-           score x hp left = MVP
-     P1  150 x 0 = 0      480 x 2 = 960  P2
-        MVP so far    P1 1200    |    P2 960
+        score x hp + 100 per hp left = MVP
+   P1  150 x 0 + 0 = 0      480 x 2 + 200 = 1160  P2
+        MVP so far    P1 1500    |    P2 1160
           first to 2 rounds takes the match
        Press R for round 3     |     M for Menu
 ```
@@ -521,12 +548,12 @@ played and nobody reached 2: one round each plus a draw (1 - 1), or three draws 
 
                    P1  1 - 1  P2
 
-  ROUND   P1  score x hp = MVP   P2  score x hp = MVP   WON BY
-  R1              400 x 3 = 1200          200 x 0 = 0     AQUA
-  R2                150 x 0 = 0        480 x 2 = 960    EMBER
-  R3                300 x 0 = 0          300 x 0 = 0      DRAW
-  ---------------------------------------------------------------
-  MVP TOTAL              1200                   960    MVP: P1
+  ROUND  P1 score x hp + bonus = MVP  P2 score x hp + bonus = MVP  WON BY
+  R1            400 x 3 + 300 = 1500           200 x 0 + 0 = 0    AQUA
+  R2              150 x 0 + 0 = 0        480 x 2 + 200 = 1160    EMBER
+  R3              300 x 0 + 0 = 0            300 x 0 + 0 = 0      DRAW
+  ----------------------------------------------------------------------
+  MVP TOTAL              1500                        1160      MVP: P1
 
            raw points   P1 850   |   P2 980
        rounds level 1 - 1  ->  MVP decides the match
@@ -538,8 +565,8 @@ the multiplication shown** · **match MVP** · **raw points** · and a bottom li
 what actually decided it.
 
 > The example above is MVP doing its job: rounds are level at 1-1 and P2 is ahead on
-> raw points (980 to 850), but P2 only survived one round, so their MVP is 960 while
-> P1 survived the round they scored heavily in and finishes on 1200 — **P1 wins.**
+> raw points (980 to 850), but P2 only survived one round, so their MVP is 1160 while
+> P1 survived the round they scored heavily in and finishes on 1500 — **P1 wins.**
 > That is why this rule fits the core game: scoring well is not enough, you have to
 > still be standing.
 
@@ -569,6 +596,7 @@ neither player but is still recorded in the ledger (`WON BY` = `DRAW`).
 **The knobs people usually want**
 
 ```python
+SURVIVE_BONUS       = 100   # MVP each surviving heart is worth (0 = no bonus)
 SCORE_TRANSFER      = 0.5   # share transferred in a head clash (0 = none, 1.0 = all)
                             # the only place score changes hands in the game
 ROUNDS_TO_WIN       = 2     # rounds needed to take the match (2 = best of 3)
@@ -588,6 +616,8 @@ SLOT_COLOR          = {'P1': 'mediumseagreen', 'P2': 'steelblue'}
 | score never to move at all | `SCORE_TRANSFER = 0.0` (HP loss only) |
 | biting to cost score too | subtract from the biter after `punish(biter)` in `resolve_bite()` |
 | best of 5 | `ROUNDS_TO_WIN = 3` (`MAX_ROUNDS` follows to 5) |
+| survival to matter more | raise `SURVIVE_BONUS` (300 makes one heart worth six fruit) |
+| no survival bonus, back to score x HP | `SURVIVE_BONUS = 0` |
 | MVP to ignore HP (raw points again) | make `mvp_total()` in `screens.py` `sum(r[slot] for r in rounds)` |
 | MVP to decide every match, not just ties | drop the rounds test from `match_champion()` and compare MVP only |
 | shorter rounds | lower `TARGET_SCORE`, or lower `MAX_HP` |

@@ -378,7 +378,14 @@ def shape_turtle(name, x, y, size=None):
     t = turtle.Turtle()
     t.penup()                                   # penup BEFORE goto, or the move draws
     t.setheading(90)
-    t.shape(name)
+    try:
+        t.shape(name)
+    except turtle.TurtleGraphicsError:
+        # An unregistered shape name. A new POWERS entry whose icon nobody drew yet used
+        # to abort Character Select mid-build, leaving a dead half-drawn screen; a grey
+        # placeholder keeps the registry "data only" as config.py promises.
+        t.shape('square')
+        t.color('#5a5a6b')
     if size is not None:
         t.shapesize(size, size)
     t.goto(x, y)

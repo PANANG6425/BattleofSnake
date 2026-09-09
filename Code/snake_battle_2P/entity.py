@@ -134,6 +134,12 @@ class Snake:
         self.stun = 0
         self.invuln = 0
         self.self_hit_grace = 0                 # Frames a self hit cannot retrigger
+        self.bite_grace = 0                     # Frames a BITE cannot punish this snake.
+                                                # Set on the winner of a head clash: the
+                                                # loser is stunned right there, so the
+                                                # winner's head is left sitting on its
+                                                # neck and would be charged for biting
+                                                # the clash it just won.
         powers_init(self)
         self.stamper.clearstamps()
 
@@ -174,6 +180,7 @@ class Snake:
         if self.stun > 0: self.stun -= 1
         if self.invuln > 0: self.invuln -= 1
         if self.self_hit_grace > 0: self.self_hit_grace -= 1
+        if self.bite_grace > 0: self.bite_grace -= 1
         powers_tick(self)
         self.speed = self.base_speed * powers_effect(self, 'speed_mult', 1.0)
 
