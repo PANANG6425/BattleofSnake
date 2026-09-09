@@ -1,7 +1,10 @@
 """
 make_sprites.py - generates every GIF sprite the game needs into ./assets/
 
-Run once:  python make_sprites.py
+Requires Pillow (pip install pillow). This is a build tool, NOT part of the game:
+the generated assets/*.gif are committed, so the game runs without Pillow.
+
+Run:  python make_sprites.py
 
 Why GIF: turtle can only register image shapes from .gif files, and it cannot
 rotate or scale them, so each snake needs one sprite per facing direction.
@@ -10,9 +13,12 @@ game picks it up automatically - no code changes needed.
 """
 
 import os                                       # For building the assets/ output path
-from PIL import Image, ImageDraw, ImageOps      # Pillow: image creation, drawing and mask inversion
+# This TOOL requires Pillow: pip install pillow
+# The game itself does not - assets/*.gif ship with the repo, so you only run this
+# file to regenerate the art (e.g. after adding a character to config.CHARACTERS).
+from PIL import Image, ImageDraw, ImageOps  # type: ignore[import-not-found]
 
-from characters import CHARACTERS               # The roster is the single source of truth
+from config import CHARACTERS                   # The roster is the single source of truth
 
 SS = 4                                          # Supersampling factor: draw big, then shrink for smooth edges
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets') # Output folder

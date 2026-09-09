@@ -1,30 +1,26 @@
 """
-main.py - entry point. Run this file to start the game:  python main.py
+main.py - entry point.  Run this file:  python main.py
 
-Needs, in the same folder:
-    game_config.py     every tunable number (arena, speeds, HP, scoring, sound)
-    characters.py      the playable roster
-    powers.py          the power registry
-    scene_manager.py   the one turtle window, sprite loader, scene switching
-    ui_helpers.py      shared drawing helpers and shape registration
-    audio.py           sound effects (optional - silent if no audio files exist)
-    menu.py, character_select.py, snake_1p.py, snake_2p.py
-    make_sprites.py    sprite generator (only needed to regenerate assets/)
+Layout (baseline kit sections):
+    config.py    Section 3  every tunable number + character / power registries
+    engine.py    Section 1  the one turtle Screen, sprites, scenes, drawing, sound
+    entity.py    Section 2  the Snake both modes use + the power runtime
+    screens.py              Main Menu and Character Select
+    solo.py                 1 Player   - Sections 2, 3, 4, 5
+    battle.py               2 Player   - Sections 2, 3, 4, 5
+    make_sprites.py         sprite generator (a tool, not runtime; needs Pillow)
 
-Sprites: assets/*.gif ships with the repo. Run `python make_sprites.py` (needs
-Pillow) after adding a character to characters.py. Missing sprites are not fatal -
-the game falls back to plain coloured squares.
-
-Sound: nothing is generated. audio.py uses assets/sounds/*.wav if present, else the
-repo's sound_effect/*.mp3 when pygame is installed, else stays silent. The line
-printed at startup says which.
+turtle + standard library only. Pillow is needed only to regenerate assets/, and no
+audio is generated at all - see MANUAL.md section 6 to switch sound on.
 """
 
-from scene_manager import wn, go_to_scene
-from menu import menu_scene
+from engine import wn, go_to_scene
 from audio import sfx
+from screens import menu_scene
 
-print(sfx.report())                             # One line so audio status is never a mystery
+print(sfx.report())                             # One line, so silence is never a mystery
+if sfx.backend == 'silent' or sfx._bad_wavs:    # Something is off - say exactly what
+    print(sfx.diagnose())
 
-go_to_scene(menu_scene)                         # Start on the main menu
-wn.mainloop()                                   # Keep the single window alive for the whole app
+go_to_scene(menu_scene)
+wn.mainloop()

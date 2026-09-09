@@ -1,0 +1,563 @@
+# Snake Battle — MANUAL
+
+> Language: [ไทย](MANUAL.md) · **English** · [日本語](MANUAL.ja.md)
+
+A local snake game written in pure `turtle` (no pygame for drawing). Two modes:
+**1 Player** and **2 Player Battle**. Pick a character and a power before each match.
+
+The only entry point is **`main.py`**.
+
+---
+
+## 1. Install & run
+
+**Required**
+
+- Python 3.8+ with `tkinter` (turtle uses tkinter underneath)
+  - Windows / macOS: the python.org installer already includes it
+  - Ubuntu / Debian: `sudo apt install python3-tk`
+- **Nothing else to install** — the game is `turtle` + the standard library.
+  The sprites in `assets/*.gif` ship with the repo.
+- Optional
+  - `pip install pillow` — only to regenerate sprites with `make_sprites.py`
+    (e.g. after adding a character)
+
+> **pygame is not required.** Graphics and sound both work on turtle + stdlib alone
+> (sound: see section 6).
+
+**Run**
+
+```bash
+python main.py            # play
+python make_sprites.py    # regenerate every GIF sprite (needs Pillow)
+```
+
+Startup prints one sound-status line, e.g. `SOUND: 8 events via winsound`, or an
+explanation of why there is no sound yet and what to do about it.
+
+The font and the window icon are configurable in `config.py` — see 9.4 and 9.5.
+
+---
+
+## 2. File layout
+
+Organised to the **baseline kit format** (Sections 1-5). No file exceeds 500 lines.
+
+```
+Code/snake_battle_2P/
+├── main.py            26   ← entry point, run this
+│
+├── config.py         190   Section 3  every constant + character and power registries
+├── engine.py         436   Section 1  the one Screen, sprites, scenes, drawing helpers
+├── entity.py         256   Section 2  the Snake both modes use + the power runtime
+├── audio.py          268              non-blocking sound (silent when no files exist)
+│
+├── screens.py        284              Main Menu and Character Select
+├── solo.py           209              1 Player mode      Sections 2, 3, 4, 5
+├── battle.py         441              2 Player Battle     Sections 2, 3, 4, 5
+│
+├── make_sprites.py   138              sprite generator (a tool, not runtime; needs Pillow)
+└── assets/                            sprite *.gif (+ sounds/ if you add .wav)
+```
+
+**Where Sections 1-5 live**
+
+| Section | Where |
+|---|---|
+| 1 Screen Setup | `engine.py` — turtle allows one Screen per process, so it is centralised |
+| 2 Game Entities | `entity.py` (Snake) + a Section 2 heading in each mode file and `screens.py` |
+| 3 Parameters & Physics | `config.py` project-wide + a Section 3 heading in each mode file for its own layout |
+| 4 Input Handling | a Section 4 heading in each mode file and `screens.py` |
+| 5 Main Game Loop | a Section 5 heading in `solo.py` / `battle.py` (`wn.ontimer(game_loop, 16)`) |
+
+**Import direction** — `config` imports nothing → `engine` creates the Screen →
+`audio` / `entity` build on it → `screens` / `solo` / `battle` → nothing imports `main`.
+
+`snake_battle_2P.py` (the original 633-line single file) **has been deleted**; nothing
+imported it. To read it back: `git show 33d5b4c:Code/snake_battle_2P/snake_battle_2P.py`
+
+---
+
+## 3. Controls
+
+**Main Menu** — click a button, or press `1` / `2`
+
+**Character Select** — one big card per player with **◀ ▶** arrows above it to flip
+through the roster (clicking the card itself also steps forward). Power icons are
+clickable across the whole box. The dots under the card show your position in the
+roster. Keyboard works too:
+
+| | Character | Power |
+|---|---|---|
+| P1 | `A` / `D` | `W` / `S` |
+| P2 | `←` / `→` | `↑` / `↓` |
+
+`Enter` starts · `Esc` back to the menu
+
+**In game**
+
+| | 1 Player | 2 Player |
+|---|---|---|
+| Move | Arrows | P1 `W A S D` · P2 Arrows |
+| Use power | `SPACE` | P1 `Q` (or `E`) · P2 `O` (or `P`) |
+| Sound on/off | `X` | `X` |
+| Restart | `R` (after game over) | `R` (on the Result screen = **next round**, tally carried over) |
+| Back to menu | `M` | `M` |
+
+> **One power key per player**, whatever power they picked, because each player picks
+> exactly one. That is why the registry can grow past two powers without running out
+> of keys to bind.
+
+---
+
+## 4. Characters (4)
+
+| Character | Colour |
+|---|---|
+| AQUA | cyan |
+| EMBER | orange |
+| VENOM | green |
+| ROYAL | violet |
+
+**All four play identically** — colour only. None is tougher or faster. A character is
+a skin, and in 2P it is also how you tell the snakes apart. That is why **the two
+players cannot pick the same one** — the arrows skip whatever the other player holds.
+Powers may be duplicated freely.
+
+**Adding a character** — append an entry to `config.py` (Section 3F) and run
+`python make_sprites.py`. Character Select reads the count from the registry itself
+(the dots grow with it); no UI code to change.
+
+To supply your own `.gif` instead of generating — see section 9.
+
+> The card portrait is drawn with turtle only (a compound shape tinted per character),
+> not from an image file, and a sprite `.gif` cannot be used for it: **turtle cannot
+> scale an image shape**, so a 20x20 head stays 20x20 whatever `shapesize()` says.
+
+---
+
+## 5. Powers (5)
+
+| Power | Effect | Cost | Duration |
+|---|---|---|---|
+| **SPEED** | move twice as fast | 50 | 180 frames |
+| **STEALTH** | body vanishes, head goes ghost (**still solid to everything**) | 50 | 180 frames |
+| **SHIELD** | take no damage at all | 50 | 150 frames |
+| **PHASE** | slip through boxes and your own tail | 50 | 150 frames |
+| **FEAST** | fruit is worth double | 40 | 240 frames |
+
+The bar caps at 100 and gains +25 per fruit (2P) / +20 (1P). A power cannot be
+re-triggered while it is still running.
+
+**Adding a power** — `config.py` (Section 3G) writes each `effect` as EFFECT KINDS the
+game already applies:
+
+```python
+speed_mult   float   head speed multiplier
+score_mult   float   fruit score multiplier
+cloak        bool    hide the body, swap the head for the ghost sprite
+invincible   bool    ignore incoming damage
+noclip       bool    obstacles and your own body stop hurting
+```
+
+> `cloak` only hides the body — it does **not** let you pass through anything. Only
+> `noclip` (PHASE) and `invincible` (SHIELD) exempt you from collisions. 1P used to
+> exempt `cloak` as well while 2P did not, which made STEALTH a strictly better PHASE
+> in 1P. That is fixed; both modes agree now.
+
+If a new power reuses existing kinds → **append an entry, give it an icon, done — no
+game code changes at all.** If it needs a genuinely new kind, add the key here and read
+it with `powers_flag()` / `powers_effect()` from `entity.py` at the one place that
+should honour it. Nothing in the game hardcodes a power name.
+
+---
+
+## 6. Sound — step by step
+
+**No audio is generated and no package is required.** With no audio files present
+every `sfx.play()` returns immediately and the game runs exactly as it would with the
+sound code absent.
+
+### Step 1 — know which sounds the game asks for
+
+Nine events, called from these places:
+
+| event | plays when | called from |
+|---|---|---|
+| `eat` | fruit collected | `solo.py` · `battle.py` |
+| `hit` | HP lost (enemy hit or self hit) | `battle.py` |
+| `bump` | hit a wall or a box | `battle.py` |
+| `power` | a power actually fired | `solo.py` · `battle.py` |
+| `win` | the RESULT screen with a winner | `battle.py` |
+| `lose` | GAME OVER in 1P | `solo.py` |
+| `select` | character / power picked | `screens.py` |
+| `start` | a match begins | `screens.py` · `solo.py` · `battle.py` |
+| `score` | not used yet — reserved | – |
+
+### Step 2 — make the folder
+
+```
+Code/snake_battle_2P/assets/sounds/
+```
+
+### Step 3 — drop `.wav` files in, named after the events
+
+```
+assets/sounds/eat.wav      assets/sounds/hit.wav      assets/sounds/bump.wav
+assets/sounds/power.wav    assets/sounds/win.wav      assets/sounds/lose.wav
+assets/sounds/select.wav   assets/sounds/start.wav
+```
+
+**Partial sets are fine** — an event with no file is simply silent, never an error.
+`eat`, `hit`, `bump`, `power` and `win` are enough to make the game feel complete.
+
+> **Why `.wav`** — on Windows these play through `winsound`, which is in the standard
+> library, so there is nothing to install. `.mp3` **cannot** be played by `winsound`
+> or by the CLI players. Only pygame reads mp3, and pygame is strictly optional.
+
+### Step 4 — run the game and read the status line
+
+```bash
+python main.py
+```
+
+```
+SOUND: 8 events via winsound          ← working
+SOUND: off - no audio files found...  ← no files yet; it says what to do
+SOUND: off - only .mp3 files were found, and .mp3 needs pygame...
+```
+
+Press **`X`** in game to mute / unmute.
+
+### Files are found but nothing plays — fix it here
+
+**By far the most common cause: the file is not 16-bit PCM.** `winsound` plays only
+PCM WAV at 8 or 16 bits. Online converters and Audacity often export **32-bit float**,
+which still has a `.wav` extension but `winsound` cannot play it.
+
+The game checks this for you. At startup you will see:
+
+```
+SOUND: 2 events via winsound  (4 file(s) skipped as unplayable - see sfx.diagnose())
+```
+
+followed by a per-file table:
+
+```
+event    status     file / reason
+eat      ready      eat.wav  [1 ch, 16-bit, 22050 Hz]
+bump     UNUSABLE   bump.wav  <-- not a playable PCM wav: unknown extended format...
+power    UNUSABLE   power.wav <-- not a playable PCM wav: unknown format: 2
+win      UNUSABLE   win.wav   <-- not a playable PCM wav: file does not start with RIFF id
+lose     UNUSABLE   lose.wav  <-- 1 ch, 24-bit - winsound needs 8 or 16-bit, not 24
+```
+
+| Message | Means | Fix |
+|---|---|---|
+| `unknown extended format` | it is 32-bit float | re-encode as 16-bit PCM |
+| `unknown format: 2` | it is ADPCM (compressed) | re-encode as 16-bit PCM |
+| `does not start with RIFF id` | it is an mp3 renamed `.wav` | actually convert it, do not rename |
+| `winsound needs 8 or 16-bit, not 24` | it is 24-bit | re-encode as 16-bit PCM |
+
+**Re-encoding correctly**
+
+```bash
+ffmpeg -i broken.wav -c:a pcm_s16le -ac 1 -ar 22050 fixed.wav
+```
+
+**In Audacity** — File > Export > Export as WAV, then choose
+**"WAV (Microsoft) signed 16-bit PCM"**. Do not pick 32-bit float.
+
+**For live detail** set `SOUND_DEBUG = True` in `config.py`; every failed playback
+prints with its reason.
+
+**Check any time**
+
+```python
+from audio import sfx
+print(sfx.diagnose())
+```
+
+### Converting the bundled mp3s to wav
+
+The repo already ships `sound_effect/*.mp3`. Convert them with anything — Audacity, an
+online converter, or ffmpeg:
+
+```bash
+ffmpeg -i sound_effect/eat_fruit.mp3      -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/eat.wav
+ffmpeg -i sound_effect/bomb.mp3           -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/hit.wav
+ffmpeg -i sound_effect/impact_wall.mp3    -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/bump.wav
+ffmpeg -i sound_effect/increase_speed.mp3 -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/power.wav
+ffmpeg -i sound_effect/result_fanfare.mp3 -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/win.wav
+ffmpeg -i sound_effect/setting.mp3        -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/select.wav
+ffmpeg -i sound_effect/start_1.mp3        -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/start.wav
+```
+
+Mono at 22050 Hz is plenty for SFX — the whole set lands around 660 KB.
+
+### Alternative: install pygame and use the mp3s as they are
+
+```bash
+pip install pygame
+```
+
+The game then picks up `sound_effect/*.mp3` directly, with no conversion, and gains
+overlapping playback. But it is **not necessary** — the `.wav` route needs no install.
+
+### Lookup order and backends
+
+Per event, the first file found wins:
+
+1. `assets/sounds/<event>.wav`
+2. every folder in `config.EXTRA_SOUND_DIRS` (default `['../../sound_effect']`)
+
+| backend | install needed | .mp3 | overlapping |
+|---|---|---|---|
+| `winsound` (Windows stdlib) | **no** ← the main path | no | no |
+| command line (afplay/paplay/aplay/ffplay) | no | no | – |
+| `pygame.mixer` | yes (optional) | yes | yes |
+| silent | – | – | nothing usable found |
+
+### Settings
+
+```python
+SOUND_ON     = True                     # config.py - start unmuted
+SOUND_DIR    = 'sounds'                 # subfolder of assets/
+SOUND_VOLUME = 0.6                      # 0.0-1.0 (pygame backend only)
+EXTRA_SOUND_DIRS = ['../../sound_effect']
+```
+
+`audio.py` may never raise and never block — a missing file, a broken file or a busy
+audio device must not take the game down.
+
+---
+
+## 7. Rules
+
+**Fruit** → +100 score (×2 with FEAST), +1 body segment, power bar up.
+2P keeps 2 fruits on the field, at least 40 px apart.
+
+**Outer wall / box** → 30-frame stun, direction reset to stop, the move is not
+committed (no HP lost). PHASE passes through boxes, but **the outer wall always stops
+you**.
+
+**Own body** → **30-frame stun + 1 HP + 50 score** (the 2 segments right behind the
+head are skipped). Nobody collects the lost points — a fumble is pure loss.
+
+Three guards stop that draining you dry, and all three are needed:
+
+1. **a 70-frame grace window** — without it the check fires every frame, because the
+   head is still sitting on its own body
+2. **only checked on a frame where the head actually moved** — a snake that bumps a
+   wall while coiled has `direction='stop'` and never leaves its own body; without
+   this it lost a heart every 70 frames and died standing still
+3. **the 60-frame damage immunity is respected** — a self hit right after an enemy hit
+   does not stack
+
+The snake coasts out of its own coil once the stun ends, with no key press needed. Set
+`SELF_HIT_DAMAGE = 0` in `config.py` for stun only, no HP loss.
+
+### The core game — biting costs the BITER
+
+The loop is **eat fruit → protect your score → bait the other snake into biting you**,
+because a bite punishes the **biter**, not the victim. So the snake that is ahead on
+score wants to dangle its body and tail in front of the other one's mouth, and the
+snake behind has to resist the bait it is being offered.
+
+| Event | Who pays | What it costs |
+|---|---|---|
+| **Your head touches the other snake's body or tail** (a bite) | **the biter** | −1 HP, −50 score, then half of what is left is handed to the victim |
+| **Head to head**, scores differ | **the HIGHER score** | −1 HP, −50 score, then half of what is left goes to the other one — **the lower score wins the clash and pays nothing** |
+| **Head to head**, scores exactly equal | **both** | −1 HP and −50 score each, no transfer |
+| **Own body** | yourself | −1 HP, −50 score, transferred to nobody |
+
+Body and tail are treated **identically**, on purpose: the old rule rewarded biting the
+tail, which worked against the whole point of the game. The head-to-head clash is
+evaluated **once per frame**, not once per player, or it would resolve twice.
+
+A 60-frame immunity follows any damage (the sprite blinks) so one touch cannot
+chain-hit. SHIELD blocks both the HP and the score loss.
+
+### Winning a round, and winning the match
+
+**One round** → the enemy's HP reaches 0, **or** you reach 500 score. Both at once →
+higher score wins; equal → DRAW.
+
+The **round tally** is on screen the whole time as `P1  1 - 0  P2`, both on the in-game
+HUD and on the result screen. First to `ROUNDS_TO_WIN` (default 2, i.e. best of 3) gets
+**MATCH WINNER**.
+
+| Pressing R | Does |
+|---|---|
+| on the result screen, match still open | plays the next round, **tally carried over** |
+| on the result screen, match decided | starts a fresh match at `0 - 0` |
+| during play | nothing (so a stray press cannot wipe a round) |
+
+A DRAW credits neither player; the tally stays where it was.
+
+---
+
+## 8. Tuning
+
+| To change | File | Heading |
+|---|---|---|
+| font · window icon · window size | `config.py` | Section 3A |
+| **every colour in the game** (background, wall, boxes, text, cards, buttons) | `config.py` | **Section 3A2 THEME** |
+| arena size, speed, HP, score, stun length, boxes, sound | `config.py` | Sections 3B-3E |
+| characters: colour + sprite palette | `config.py` | Section 3F |
+| powers: effect, cost, duration, icon, blurb | `config.py` | Section 3G |
+| per-mode HUD / heart / bar positions | `solo.py` / `battle.py` | Section 3 |
+| snake spawn points | `battle.py` | `SPAWN` in Section 3 |
+
+**The knobs people usually want**
+
+```python
+DEATH_SCORE_PENALTY = 50    # score lost on every knockdown
+SCORE_TRANSFER      = 0.5   # share of the loser's remaining score handed to the winner
+ROUNDS_TO_WIN       = 2     # rounds needed to take the match (2 = best of 3)
+TARGET_SCORE        = 500   # score that wins a round outright
+MAX_HP              = 3
+SELF_HIT_DAMAGE     = 1     # HP lost for hitting your own body (0 = stun only)
+WALL_MARGIN         = 10    # keeps the head from sinking into the wall = half the sprite
+SLOT_COLOR          = {'P1': 'mediumseagreen', 'P2': 'steelblue'}
+```
+
+**Dialling the core game up or down**
+
+| You want | Change |
+|---|---|
+| biting to hurt more | raise `DEATH_SCORE_PENALTY`, or raise `SCORE_TRANSFER` (1.0 = the whole remaining score) |
+| points lost but never transferred | `SCORE_TRANSFER = 0.0` |
+| best of 5 | `ROUNDS_TO_WIN = 3` |
+| shorter rounds | lower `TARGET_SCORE`, or lower `MAX_HP` |
+
+Constants are no longer duplicated across the mode files — change `config.py` once and
+both modes follow.
+
+---
+
+## 9. Supplying your own art and sound
+
+### 9.1 Upload your own `.gif` (no need to run make_sprites.py)
+
+Put files in `assets/` with these names and the game picks them up — **no code
+changes**. `<key>` is `p1` `p2` `p3` `p4` per `config.py` Section 3F.
+
+| File | Size in use | Note |
+|---|---|---|
+| `<key>_head_up.gif` `_down` `_left` `_right` | 20×20 | **all four directions required** |
+| `<key>_head_up_ghost.gif` (+ the other 3) | 20×20 | head while CLOAK is active |
+| `<key>_body.gif` | 16×16 | one segment, stamped repeatedly |
+| `heart_full.gif` / `heart_empty.gif` | 18×18 | HP hearts |
+| `fruit.gif` | 16×16 | fruit |
+
+**Rules you cannot get around** (turtle limitations, not the game's)
+
+- Must be **GIF** — a `.png` also works: `load_shape()` converts it to `.gif` once
+  (needs Pillow)
+- **turtle cannot rotate an image**, hence four separate head files
+- **turtle cannot scale an image** → **the file's pixel size IS the in-game size**;
+  `shapesize()` does nothing. Want a bigger snake? Make a bigger file.
+- GIF transparency is **on/off** only, no soft edges
+- A missing or broken file is not fatal — that part falls back to a coloured square
+- Set `USE_SPRITES = False` in `config.py` to force coloured squares everywhere
+
+### 9.2 Can I recolour the body myself? Yes — by NOT shipping a body gif
+
+**turtle cannot tint an image.** A `.gif` is a Tk image item; `color()` has no effect
+on it at all. So if you ship `<key>_body.gif`, its colour is **baked into the file**
+and `config.py` cannot change it.
+
+Head and body are therefore decided **separately**. Four combinations:
+
+| head gif | body gif | Result |
+|---|---|---|
+| ✅ | ✅ | both from your art — colour lives in the files |
+| ✅ | ❌ | **head from your art, body a coloured square from `config.py`** ← this one |
+| ❌ | ✅ | body from art, head a coloured square |
+| ❌ | ❌ | coloured squares throughout |
+
+> **So:** to have a nice hand-drawn head but still control the body colour in code,
+> **ship only `<key>_head_*.gif` and no `<key>_body.gif`.** The body then uses that
+> character's `main` colour, editable in `config.py` without touching any image.
+
+All four combinations are tested and render without error.
+
+> Note: `<key>_body_ghost.gif` **is not used** — CLOAK hides the body entirely rather
+> than swapping in a ghost body. Don't spend time on that file.
+
+### 9.3 Supplying your own sound
+
+See **section 6** for the full step-by-step. In short: put `.wav` files in
+`assets/sounds/` named after the events (`eat` `hit` `bump` `power` `win` `lose`
+`select` `start`). Partial sets are fine, and nothing needs installing.
+
+---
+
+## 9.4 Changing the font
+
+`config.py` → `FONT_CANDIDATES` is a **list**, not a single name, because tkinter
+silently substitutes a different font when the one you asked for is missing — so you
+never find out what you actually got. `engine.py` asks Tk which families exist and
+picks **the first name in the list that this machine really has**.
+
+```python
+FONT_CANDIDATES = ['Consolas', 'Cascadia Mono', 'Courier New',
+                   'DejaVu Sans Mono', 'Liberation Mono', 'Courier']
+```
+
+Put your preferred font first and keep a generic monospace last as the safety net. One
+list works on Windows and Linux alike (Windows lands on Consolas, Linux on DejaVu).
+
+## 9.5 Changing the window icon (replacing tkinter's feather)
+
+Put your logo in `assets/` under one of these names — **first file found wins**:
+
+```python
+WINDOW_ICON = ['icon.png', 'icon.gif', 'logo.png', 'logo.gif', 'icon.ico']
+```
+
+| Extension | Works where | Note |
+|---|---|---|
+| `.png` `.gif` | **every OS** (Tk 8.6+) | recommended, via `iconphoto` |
+| `.ico` | **Windows only** | via `iconbitmap` — Linux/Tk rejects it |
+
+32×32 or 64×64 is a good size. With no file present the default tkinter icon simply
+stays; it is not an error.
+
+---
+
+## 10. Technical notes (turtle has a lot of traps)
+
+Each of these cost a real bug. Kept here so they don't come back:
+
+- **A shape turtle always covers text.** turtle redraws a turtle's cursor with
+  `tag_raise` every frame, so it floats above pen drawings and `write()` text no matter
+  the creation order. Anything that needs text on top must be pen-drawn
+  (`engine.filled_rect`) with clicks hit-tested (`wn.onscreenclick` +
+  `engine.inside_rect`).
+- **`onclick()` does not work on a multi-component compound shape.**
+  `turtle.turtle._item` is a LIST there, so `tag_bind` matches nothing. Hit-test
+  coordinates instead.
+- **Shapes rotate by `heading - 90`** because turtle's built-ins are authored nose-up.
+  Shapes in `engine.py` are authored in screen coordinates, so display them through
+  `engine.shape_turtle()`, which sets heading 90.
+- **Turtles must be destroyed on a scene change.** `hideturtle()` is not enough: delete
+  the canvas items (`items`, `stampItems`, `drawingLineItem`, `_fillitem`, and the
+  cursor — a LIST for compound shapes) and unregister the turtle, or every scene switch
+  leaks. `engine.clear_all_turtles()` does this.
+- **Image shapes are GIF only**, cannot rotate or scale, **and cannot be tinted**
+  (`color()` has no effect on a Tk image item), so the colour lives in the art — see 9.2.
+- **`addshape()` raises `tkinter.TclError`, not `TurtleGraphicsError`,** for a
+  truncated GIF or a `.png` renamed `.gif`. Catching only `TurtleGraphicsError` let a
+  bad sprite crash the whole scene, and because the cache was never written every retry
+  crashed again. `load_shape()` now catches broadly and caches the failure.
+- **Self-collision needs a grace window** or it retriggers every frame; see section 7.
+- **The head must be stamped last** — canvas items keep creation order.
+- **Body segments are placed by walking the path backwards accumulating distance**, not
+  by a frame offset, or the body spreads apart while SPEED is active.
+- **Sprites are drawn centred.** Letting the head's *centre* reach the arena edge sank
+  half the sprite into the wall (measured: exactly 10 px, half of a 20×20 head), hence
+  `WALL_MARGIN`.
+- **tkinter substitutes fonts silently.** Ask `tkinter.font.families()` what actually
+  exists before choosing — `engine._pick_font()` does.

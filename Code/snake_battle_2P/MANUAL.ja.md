@@ -1,0 +1,561 @@
+# Snake Battle — マニュアル
+
+> 言語: [ไทย](MANUAL.md) · [English](MANUAL.en.md) · **日本語**
+
+`turtle` だけで書いたローカル対戦スネークゲームです（描画に pygame は使いません）。
+モードは **1 Player** と **2 Player Battle** の 2 つ。試合前にキャラクターとパワーを選びます。
+
+エントリーポイントは **`main.py`** だけです。
+
+---
+
+## 1. インストールと実行
+
+**必須**
+
+- `tkinter` が入った Python 3.8+（turtle は内部で tkinter を使います）
+  - Windows / macOS: python.org のインストーラに同梱されています
+  - Ubuntu / Debian: `sudo apt install python3-tk`
+- **追加インストールは不要** — ゲームは `turtle` と標準ライブラリだけで動きます。
+  スプライト `assets/*.gif` はリポジトリに同梱済みです。
+- 任意
+  - `pip install pillow` — `make_sprites.py` でスプライトを再生成するときだけ必要
+    （キャラクターを追加した場合など）
+
+> **pygame は不要です。** 描画も音も turtle + 標準ライブラリだけで動きます
+> （音については第 6 章）。
+
+**実行**
+
+```bash
+python main.py            # プレイ
+python make_sprites.py    # GIF スプライトを全部再生成（Pillow が必要）
+```
+
+起動時にサウンドの状態が 1 行表示されます。例: `SOUND: 8 events via winsound`。
+音が出ていない場合は、その理由と対処方法も表示されます。
+
+フォントとウィンドウアイコンは `config.py` で変更できます — 9.4 と 9.5 を参照。
+
+---
+
+## 2. ファイル構成
+
+**baseline kit のフォーマット**（Section 1-5）に沿っています。1 ファイル 500 行以内。
+
+```
+Code/snake_battle_2P/
+├── main.py            26   ← エントリーポイント、これを実行
+│
+├── config.py         190   Section 3  全定数 + キャラクター/パワーのレジストリ
+├── engine.py         436   Section 1  唯一の Screen、スプライト、シーン切替、描画補助
+├── entity.py         256   Section 2  両モード共通の Snake クラス + パワーの実行部
+├── audio.py          268              ノンブロッキングな効果音（ファイルが無ければ無音）
+│
+├── screens.py        284              メインメニューとキャラクターセレクト
+├── solo.py           209              1 人プレイ        Section 2, 3, 4, 5
+├── battle.py         441              2 人対戦          Section 2, 3, 4, 5
+│
+├── make_sprites.py   138              スプライト生成ツール（実行時には不要、Pillow が必要）
+└── assets/                            スプライト *.gif（+ .wav を入れるなら sounds/）
+```
+
+**Section 1-5 の場所**
+
+| Section | 場所 |
+|---|---|
+| 1 Screen Setup | `engine.py` — turtle は 1 プロセスに 1 つの Screen しか許さないため集約 |
+| 2 Game Entities | `entity.py`（Snake）+ 各モードファイルと `screens.py` の Section 2 見出し |
+| 3 Parameters & Physics | プロジェクト全体は `config.py`、モード固有のレイアウトは各モードの Section 3 |
+| 4 Input Handling | 各モードファイルと `screens.py` の Section 4 見出し |
+| 5 Main Game Loop | `solo.py` / `battle.py` の Section 5 見出し（`wn.ontimer(game_loop, 16)`） |
+
+**import の向き** — `config` は何も import しない → `engine` が Screen を作る →
+`audio` / `entity` がその上に乗る → `screens` / `solo` / `battle` →
+`main` は誰からも import されません。
+
+`snake_battle_2P.py`（最初の 633 行の単一ファイル版）は**削除済み**です。誰も import して
+いませんでした。中身を見たい場合は
+`git show 33d5b4c:Code/snake_battle_2P/snake_battle_2P.py`
+
+---
+
+## 3. 操作
+
+**メインメニュー** — ボタンをクリック、または `1` / `2` キー
+
+**キャラクターセレクト** — プレイヤーごとに大きなカードが 1 枚。上の **◀ ▶** 矢印で
+ロスターをめくります（カード本体をクリックしても次に進みます）。パワーのアイコンは
+枠全体がクリック可能です。カード下のドットが現在の位置を示します。キーボードでも操作できます:
+
+| | キャラクター | パワー |
+|---|---|---|
+| P1 | `A` / `D` | `W` / `S` |
+| P2 | `←` / `→` | `↑` / `↓` |
+
+`Enter` で開始 · `Esc` でメニューへ戻る
+
+**ゲーム中**
+
+| | 1 Player | 2 Player |
+|---|---|---|
+| 移動 | 矢印キー | P1 `W A S D` · P2 矢印キー |
+| パワー使用 | `SPACE` | P1 `Q`（または `E`）· P2 `O`（または `P`） |
+| 音の ON/OFF | `X` | `X` |
+| リスタート | `R`（ゲームオーバー後） | `R`（リザルト画面 = **次のラウンド**、ラウンドスコアは持ち越し） |
+| メニューへ | `M` | `M` |
+
+> **パワーはプレイヤーごとに 1 キーだけ**です。選んだパワーが何であれ同じキーで発動します。
+> 各プレイヤーが選べるのは 1 つだけなので、キーが足りなくなることなくパワーを増やせます。
+
+---
+
+## 4. キャラクター（4 体）
+
+| キャラクター | 色 |
+|---|---|
+| AQUA | シアン |
+| EMBER | オレンジ |
+| VENOM | グリーン |
+| ROYAL | バイオレット |
+
+**4 体の性能は完全に同じ**で、違うのは色だけです。硬い・速いといった差はありません。
+キャラクターはスキンであり、2P ではどちらの蛇かを見分ける手段でもあります。そのため
+**2 人が同じキャラクターを選ぶことはできません** — 矢印は相手が持っているキャラクターを
+自動でスキップします。パワーは重複して選べます。
+
+**キャラクターの追加** — `config.py`（Section 3F）にエントリを追加して
+`python make_sprites.py` を実行するだけ。キャラクターセレクトはレジストリから数を読むので
+（ドットも自動で増えます）UI のコードを触る必要はありません。
+
+生成せずに自分の `.gif` を使いたい場合は第 9 章へ。
+
+> カードの立ち絵は turtle だけで描いています（キャラクターごとに色を変えた compound shape）。
+> 画像ファイルではありません。スプライトの `.gif` は使えません。**turtle は image shape を
+> 拡大縮小できない**ため、20×20 の頭は `shapesize()` を何に設定しても 20×20 のままです。
+
+---
+
+## 5. パワー（5 種類）
+
+| パワー | 効果 | コスト | 持続 |
+|---|---|---|---|
+| **SPEED** | 移動速度が 2 倍 | 50 | 180 フレーム |
+| **STEALTH** | 胴体が消え、頭がゴースト化（**当たり判定は全部残る**） | 50 | 180 フレーム |
+| **SHIELD** | ダメージを一切受けない | 50 | 150 フレーム |
+| **PHASE** | 障害物と自分の尾をすり抜ける | 50 | 150 フレーム |
+| **FEAST** | フルーツのスコアが 2 倍 | 40 | 240 フレーム |
+
+ゲージは最大 100。フルーツ 1 個で +25（2P）/ +20（1P）。発動中に再発動はできません。
+
+**パワーの追加** — `config.py`（Section 3G）では各 `effect` を、ゲームが既に解釈できる
+**効果の種類**として書きます:
+
+```python
+speed_mult   float   頭の速度の倍率
+score_mult   float   フルーツのスコア倍率
+cloak        bool    胴体を隠し、頭をゴーストスプライトに差し替え
+invincible   bool    受けるダメージを無視
+noclip       bool    障害物と自分の胴体が無害になる
+```
+
+> `cloak` は胴体を隠すだけで、**何かをすり抜ける効果はありません**。当たり判定を免除するのは
+> `noclip`（PHASE）と `invincible`（SHIELD）だけです。以前は 1P だけ `cloak` も免除して
+> いたため、1P では STEALTH が PHASE の完全上位互換になっていました。現在は両モードで
+> 統一されています。
+
+既存の種類を使い回す新しいパワーなら → **エントリとアイコンを追加するだけで完了。
+ゲームのコードは一切変更不要です。** 本当に新しい種類が必要な場合は、ここにキーを追加し、
+それを尊重すべき箇所 1 か所で `entity.py` の `powers_flag()` / `powers_effect()` から読みます。
+ゲーム内でパワー名をハードコードしている箇所はありません。
+
+---
+
+## 6. サウンド — 手順どおりに
+
+**音声ファイルは生成しませんし、パッケージも不要です。** 音声ファイルが 1 つも無い状態では
+`sfx.play()` は即座に return し、サウンドのコードが無いのと全く同じように動きます。
+
+### 手順 1 — ゲームがどの音を要求するか知る
+
+イベントは 9 種類。呼び出し箇所は次のとおりです:
+
+| イベント | 鳴るタイミング | 呼び出し元 |
+|---|---|---|
+| `eat` | フルーツを取った | `solo.py` · `battle.py` |
+| `hit` | HP が減った（敵の攻撃・自分の胴体） | `battle.py` |
+| `bump` | 壁や障害物にぶつかった | `battle.py` |
+| `power` | パワーが実際に発動した | `solo.py` · `battle.py` |
+| `win` | 勝者が出たリザルト画面 | `battle.py` |
+| `lose` | 1P のゲームオーバー | `solo.py` |
+| `select` | キャラクター / パワーを選んだ | `screens.py` |
+| `start` | 試合開始 | `screens.py` · `solo.py` · `battle.py` |
+| `score` | 未使用 — 予備 | – |
+
+### 手順 2 — フォルダを作る
+
+```
+Code/snake_battle_2P/assets/sounds/
+```
+
+### 手順 3 — イベント名で `.wav` を置く
+
+```
+assets/sounds/eat.wav      assets/sounds/hit.wav      assets/sounds/bump.wav
+assets/sounds/power.wav    assets/sounds/win.wav      assets/sounds/lose.wav
+assets/sounds/select.wav   assets/sounds/start.wav
+```
+
+**一部だけでも大丈夫です** — ファイルが無いイベントは単に無音になり、エラーにはなりません。
+`eat`・`hit`・`bump`・`power`・`win` の 5 つがあれば十分に賑やかになります。
+
+> **なぜ `.wav` か** — Windows では標準ライブラリの `winsound` で再生されるため、
+> インストールが一切不要です。`.mp3` は `winsound` や CLI プレイヤーでは**再生できません**。
+> mp3 を読めるのは pygame だけで、pygame は完全に任意です。
+
+### 手順 4 — 起動してステータス行を読む
+
+```bash
+python main.py
+```
+
+```
+SOUND: 8 events via winsound          ← 動作中
+SOUND: off - no audio files found...  ← ファイルが無い。何をすべきか書いてあります
+SOUND: off - only .mp3 files were found, and .mp3 needs pygame...
+```
+
+ゲーム中は **`X`** でミュート切替。
+
+### ファイルは見つかるのに音が出ない — ここで解決します
+
+**圧倒的に多い原因は「16-bit PCM ではない」ことです。** `winsound` が再生できるのは
+8 bit または 16 bit の PCM WAV だけです。オンライン変換や Audacity は **32-bit float**
+で書き出すことが多く、拡張子は `.wav` でも `winsound` では再生できません。
+
+ゲームが自動でチェックします。起動時にこう出ます:
+
+```
+SOUND: 2 events via winsound  (4 file(s) skipped as unplayable - see sfx.diagnose())
+```
+
+続いてファイルごとの表が出ます:
+
+```
+event    status     file / reason
+eat      ready      eat.wav  [1 ch, 16-bit, 22050 Hz]
+bump     UNUSABLE   bump.wav  <-- not a playable PCM wav: unknown extended format...
+power    UNUSABLE   power.wav <-- not a playable PCM wav: unknown format: 2
+win      UNUSABLE   win.wav   <-- not a playable PCM wav: file does not start with RIFF id
+lose     UNUSABLE   lose.wav  <-- 1 ch, 24-bit - winsound needs 8 or 16-bit, not 24
+```
+
+| メッセージ | 意味 | 対処 |
+|---|---|---|
+| `unknown extended format` | 32-bit float | 16-bit PCM で再エンコード |
+| `unknown format: 2` | ADPCM（圧縮） | 16-bit PCM で再エンコード |
+| `does not start with RIFF id` | mp3 を `.wav` にリネームしただけ | リネームではなく実際に変換する |
+| `winsound needs 8 or 16-bit, not 24` | 24-bit | 16-bit PCM で再エンコード |
+
+**正しい再エンコード**
+
+```bash
+ffmpeg -i broken.wav -c:a pcm_s16le -ac 1 -ar 22050 fixed.wav
+```
+
+**Audacity では** — ファイル > 書き出し > WAV として書き出し で
+**「WAV (Microsoft) signed 16-bit PCM」** を選んでください。32-bit float は不可です。
+
+**再生時の詳細を見たい場合** は `config.py` で `SOUND_DEBUG = True` にすると、
+再生に失敗するたびに理由が表示されます。
+
+**いつでも自分で確認**
+
+```python
+from audio import sfx
+print(sfx.diagnose())
+```
+
+### 同梱の mp3 を wav に変換する
+
+リポジトリには `sound_effect/*.mp3` が既に入っています。Audacity、オンライン変換、
+または ffmpeg などで変換してください:
+
+```bash
+ffmpeg -i sound_effect/eat_fruit.mp3      -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/eat.wav
+ffmpeg -i sound_effect/bomb.mp3           -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/hit.wav
+ffmpeg -i sound_effect/impact_wall.mp3    -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/bump.wav
+ffmpeg -i sound_effect/increase_speed.mp3 -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/power.wav
+ffmpeg -i sound_effect/result_fanfare.mp3 -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/win.wav
+ffmpeg -i sound_effect/setting.mp3        -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/select.wav
+ffmpeg -i sound_effect/start_1.mp3        -c:a pcm_s16le -ac 1 -ar 22050 assets/sounds/start.wav
+```
+
+効果音ならモノラル 22050 Hz で十分です。全部合わせて 660 KB 程度になります。
+
+### 別の方法: pygame を入れて mp3 をそのまま使う
+
+```bash
+pip install pygame
+```
+
+これだけで `sound_effect/*.mp3` を変換せずにそのまま使えるようになり、音の重ね再生も
+できます。ただし**必須ではありません** — `.wav` の方法なら何もインストールしません。
+
+### 探索順とバックエンド
+
+イベントごとに、最初に見つかったファイルが使われます:
+
+1. `assets/sounds/<event>.wav`
+2. `config.EXTRA_SOUND_DIRS` の各フォルダ（既定は `['../../sound_effect']`）
+
+| バックエンド | インストール | .mp3 | 重ね再生 |
+|---|---|---|---|
+| `winsound`（Windows 標準ライブラリ） | **不要** ← 本筋 | 不可 | 不可 |
+| コマンドライン（afplay/paplay/aplay/ffplay） | 不要 | 不可 | – |
+| `pygame.mixer` | 必要（任意） | 可 | 可 |
+| silent | – | – | 使えるファイルが無い |
+
+### 設定
+
+```python
+SOUND_ON     = True                     # config.py - ミュート解除で開始
+SOUND_DIR    = 'sounds'                 # assets/ 内のサブフォルダ
+SOUND_VOLUME = 0.6                      # 0.0-1.0（pygame バックエンドのみ有効）
+EXTRA_SOUND_DIRS = ['../../sound_effect']
+```
+
+`audio.py` は例外を投げてもブロックしてもいけません。ファイルが無い・壊れている・
+オーディオデバイスが使用中、そのいずれでもゲームが落ちてはいけません。
+
+---
+
+## 7. ルール
+
+**フルーツ** → スコア +100（FEAST 中は ×2）、胴体 +1 節、パワーゲージ増加。
+2P はフィールドに常に 2 個、互いに 40 px 以上離して配置されます。
+
+**外壁 / 障害物** → 30 フレームのスタン、方向は停止にリセット、移動は確定されません
+（HP は減りません）。PHASE は障害物をすり抜けますが、**外壁は必ず止まります**。
+
+**自分の胴体** → **30 フレームのスタン + HP 1 + スコア 50**（頭の直後 2 節は除外）。
+失ったスコアは誰の手にも渡りません。自分のミスは丸損です。
+
+これで HP が一気に溶けないよう 3 つの歯止めがあり、3 つとも必要です:
+
+1. **70 フレームの猶予** — これが無いと、頭が自分の胴体の上に乗ったままなので毎フレーム
+   判定が成立してしまいます
+2. **頭が実際に動いたフレームのみ判定** — とぐろを巻いた状態で壁にぶつかった蛇は
+   `direction='stop'` になり、自分の胴体から離れません。これが無いと 70 フレームごとに
+   1 ハート失い、止まったまま死にます
+3. **60 フレームのダメージ無敵を尊重** — 敵に殴られた直後の自傷は重複しません
+
+スタンが切れれば蛇は自分でとぐろから抜け出すので、キー入力は不要です。HP を減らさず
+スタンだけにしたい場合は `config.py` の `SELF_HIT_DAMAGE = 0` にしてください。
+
+### コアゲーム — 噛んだ側が損をする
+
+このゲームの芯は **フルーツを食べる → スコアを守る → 相手に自分を噛ませる** です。
+噛みつきは噛まれた側ではなく**噛んだ側**を罰するので、スコアで先行している蛇は
+胴体と尾を相手の口の前で振ってみせたくなり、後ろにいる蛇は差し出された餌を
+我慢しなければなりません。
+
+| 出来事 | 損をするのは | 内容 |
+|---|---|---|
+| **自分の頭が相手の胴体か尾に触れる**（噛みつき） | **噛んだ側** | HP −1、スコア −50、さらに残ったスコアの半分を噛まれた側へ譲渡 |
+| **頭と頭**、スコアが異なる | **スコアが高い側** | HP −1、スコア −50、さらに残りの半分を相手へ — **スコアが低い側が衝突に勝ち、何も失いません** |
+| **頭と頭**、スコアが完全に同じ | **両方** | それぞれ HP −1、スコア −50、譲渡なし |
+| **自分の胴体** | 自分 | HP −1、スコア −50、誰にも渡りません |
+
+胴体と尾は意図的に**同じ扱い**です。旧ルールは尾を噛むことに報酬を与えており、
+ゲームの狙いと逆でした。頭と頭の衝突はプレイヤーごとではなく**1 フレームに 1 回**
+判定します。そうしないと二重に成立してしまいます。
+
+ダメージ後は 60 フレームの無敵（スプライトが点滅）が付き、1 回の接触で連続ヒットしません。
+SHIELD は HP とスコアの両方を守ります。
+
+### ラウンド勝利とマッチ勝利
+
+**1 ラウンド** → 相手の HP が 0、**または**スコア 500 到達。同時なら高スコア側の勝ち、
+同点なら DRAW。
+
+**ラウンドスコア**は `P1  1 - 0  P2` の形で常に画面中央に表示されます（プレイ中の HUD と
+リザルト画面の両方）。先に `ROUNDS_TO_WIN`（既定 2 = 3 本勝負）に達した側が
+**MATCH WINNER** です。
+
+| R を押す場面 | 動作 |
+|---|---|
+| リザルト画面・マッチ継続中 | 次のラウンドへ。**ラウンドスコアは持ち越し** |
+| リザルト画面・マッチ決着後 | `0 - 0` から新しいマッチを開始 |
+| プレイ中 | 何も起きません（誤操作でラウンドを消さないため） |
+
+DRAW はどちらにも加算されず、ラウンドスコアはそのままです。
+
+---
+
+## 8. バランス調整
+
+| 変えたいもの | ファイル | 見出し |
+|---|---|---|
+| フォント · ウィンドウアイコン · ウィンドウサイズ | `config.py` | Section 3A |
+| **ゲーム内の全ての色**（背景・壁・障害物・文字・カード・ボタン） | `config.py` | **Section 3A2 THEME** |
+| アリーナサイズ、速度、HP、スコア、スタン時間、障害物、サウンド | `config.py` | Section 3B-3E |
+| キャラクター: 色 + スプライトのパレット | `config.py` | Section 3F |
+| パワー: 効果・コスト・持続・アイコン・説明文 | `config.py` | Section 3G |
+| モード固有の HUD / ハート / ゲージの位置 | `solo.py` / `battle.py` | Section 3 |
+| 蛇のスポーン地点 | `battle.py` | Section 3 の `SPAWN` |
+
+**よく触る値**
+
+```python
+DEATH_SCORE_PENALTY = 50    # ノックダウンごとに失うスコア
+SCORE_TRANSFER      = 0.5   # 敗者の残りスコアのうち勝者へ渡る割合
+ROUNDS_TO_WIN       = 2     # マッチを取るのに必要なラウンド数（2 = 3 本勝負）
+TARGET_SCORE        = 500   # 到達した時点でラウンド勝利になるスコア
+MAX_HP              = 3
+SELF_HIT_DAMAGE     = 1     # 自分の胴体に当たったときに減る HP（0 でスタンのみ）
+WALL_MARGIN         = 10    # 頭が壁に埋まるのを防ぐ = スプライトの半分
+SLOT_COLOR          = {'P1': 'mediumseagreen', 'P2': 'steelblue'}
+```
+
+**コアゲームの強さを調整する**
+
+| やりたいこと | 変える値 |
+|---|---|
+| 噛みつきの痛みを増やす | `DEATH_SCORE_PENALTY` を上げる、または `SCORE_TRANSFER` を上げる（1.0 で残り全部） |
+| スコアは減るが譲渡はしない | `SCORE_TRANSFER = 0.0` |
+| 5 本勝負にする | `ROUNDS_TO_WIN = 3` |
+| ラウンドを短くする | `TARGET_SCORE` か `MAX_HP` を下げる |
+
+定数はモードファイルに重複していません。`config.py` を 1 か所直せば両モードに反映されます。
+
+---
+
+## 9. 自分の画像と音を使う
+
+### 9.1 自分の `.gif` を入れる（make_sprites.py の実行は不要）
+
+次の名前で `assets/` に置けば、ゲームがそのまま使います。**コードの変更は不要**です。
+`<key>` は `config.py` Section 3F の `p1` `p2` `p3` `p4` です。
+
+| ファイル | 現在のサイズ | 備考 |
+|---|---|---|
+| `<key>_head_up.gif` `_down` `_left` `_right` | 20×20 | **4 方向すべて必要** |
+| `<key>_head_up_ghost.gif`（+ 残り 3 方向） | 20×20 | CLOAK 中の頭 |
+| `<key>_body.gif` | 16×16 | 1 節。繰り返しスタンプされます |
+| `heart_full.gif` / `heart_empty.gif` | 18×18 | HP のハート |
+| `fruit.gif` | 16×16 | フルーツ |
+
+**回避できない制約**（ゲームではなく turtle の制限です）
+
+- **GIF** であること — `.png` でも可: `load_shape()` が一度だけ `.gif` に変換します
+  （Pillow が必要）
+- **turtle は画像を回転できない**ため、頭は 4 ファイルに分かれています
+- **turtle は画像を拡大縮小できない** → **ファイルのピクセルサイズがそのままゲーム内サイズ**
+  です。`shapesize()` は効きません。大きな蛇にしたいならファイルを大きく作ってください。
+- GIF の透過は**オン/オフのみ**。半透明の縁は作れません
+- ファイルが無い・壊れていても致命的ではありません。その部分だけ色付きの四角に戻ります
+- `config.py` の `USE_SPRITES = False` で全体を色付きの四角に強制できます
+
+### 9.2 胴体の色は自分で変えられる？ できます — body の gif を入れなければ
+
+**turtle は画像に色を塗れません。** `.gif` は Tk の image item であり、`color()` は
+一切効きません。つまり `<key>_body.gif` を入れると、その色は**ファイルに焼き込まれ**、
+`config.py` からは変更できません。
+
+そのため頭と胴体は**別々に**判定されます。組み合わせは 4 通り:
+
+| head gif | body gif | 結果 |
+|---|---|---|
+| ✅ | ✅ | 頭も胴体も自分の画像 — 色はファイル側 |
+| ✅ | ❌ | **頭は自分の画像、胴体は `config.py` の色付き四角** ← これ |
+| ❌ | ✅ | 胴体は画像、頭は色付き四角 |
+| ❌ | ❌ | 全部色付き四角 |
+
+> **つまり:** 手描きの頭を使いつつ胴体の色をコードで管理したいなら、
+> **`<key>_head_*.gif` だけを入れて `<key>_body.gif` は置かないこと。**
+> 胴体はそのキャラクターの `main` 色を使うので、画像を触らずに `config.py` で変えられます。
+
+4 通りすべてテスト済みで、エラーなく描画されます。
+
+> 補足: `<key>_body_ghost.gif` は**使われていません**。CLOAK はゴーストの胴体に
+> 差し替えるのではなく胴体を完全に隠すためです。このファイルに手間をかける必要はありません。
+
+### 9.3 自分の音を使う
+
+完全な手順は**第 6 章**を見てください。要点だけ言えば、イベント名（`eat` `hit` `bump`
+`power` `win` `lose` `select` `start`）で `.wav` を `assets/sounds/` に置くだけです。
+一部だけでも構いませんし、インストールも不要です。
+
+---
+
+## 9.4 フォントを変える
+
+`config.py` の `FONT_CANDIDATES` は単一の名前ではなく**リスト**です。tkinter は指定した
+フォントが無いと黙って別のフォントに差し替えるため、実際に何が使われたのか分からないから
+です。`engine.py` は Tk にどのフォントファミリが存在するかを問い合わせ、
+**そのマシンに実際にある最初の名前**を選びます。
+
+```python
+FONT_CANDIDATES = ['Consolas', 'Cascadia Mono', 'Courier New',
+                   'DejaVu Sans Mono', 'Liberation Mono', 'Courier']
+```
+
+使いたいフォントを先頭に置き、末尾には汎用の等幅フォントを保険として残してください。
+1 つのリストで Windows でも Linux でも動きます（Windows では Consolas、Linux では
+DejaVu が選ばれます）。
+
+## 9.5 ウィンドウアイコンを変える（tkinter の羽根マークを差し替える）
+
+次のいずれかの名前でロゴを `assets/` に置いてください。**最初に見つかったファイルが
+使われます**:
+
+```python
+WINDOW_ICON = ['icon.png', 'icon.gif', 'logo.png', 'logo.gif', 'icon.ico']
+```
+
+| 拡張子 | 動作環境 | 備考 |
+|---|---|---|
+| `.png` `.gif` | **全 OS**（Tk 8.6+） | 推奨。`iconphoto` 経由 |
+| `.ico` | **Windows のみ** | `iconbitmap` 経由 — Linux/Tk は受け付けません |
+
+32×32 か 64×64 が適切です。ファイルが無ければ tkinter の既定アイコンがそのまま残るだけで、
+エラーにはなりません。
+
+---
+
+## 10. 技術メモ（turtle には罠が多い）
+
+どれも実際にバグとして時間を取られたものです。再発しないよう残しています:
+
+- **shape turtle は必ず文字の上に来ます。** turtle は毎フレーム `tag_raise` で
+  カーソルを再描画するため、生成順に関係なくペンの描画や `write()` の文字より上に
+  浮きます。文字を上に置きたいものはペンで描き（`engine.filled_rect`）、クリックは
+  座標判定にします（`wn.onscreenclick` + `engine.inside_rect`）。
+- **`onclick()` は複数コンポーネントの compound shape では機能しません。**
+  そこでは `turtle.turtle._item` が LIST になるため `tag_bind` が何にもマッチしません。
+  座標で判定してください。
+- **shape は `heading - 90` だけ回転します。** turtle の組み込み shape が上向きで
+  定義されているためです。`engine.py` の shape は画面座標で定義しているので、
+  heading 90 を設定する `engine.shape_turtle()` を通して表示します。
+- **シーン切替では turtle を破棄しなければなりません。** `hideturtle()` では不十分で、
+  canvas item（`items`、`stampItems`、`drawingLineItem`、`_fillitem`、そして compound
+  shape では LIST になるカーソル）を削除し、turtle を登録解除する必要があります。
+  さもないとシーンを切り替えるたびにリークします。`engine.clear_all_turtles()` が
+  これを行います。
+- **image shape は GIF のみ**、回転も拡大縮小もできず、**色も塗れません**
+  （`color()` は Tk の image item に効きません）。だから色は画像側にあります — 9.2 参照。
+- **`addshape()` は `TurtleGraphicsError` ではなく `tkinter.TclError` を投げます。**
+  壊れた GIF や `.gif` にリネームした `.png` の場合です。`TurtleGraphicsError` だけを
+  捕まえていたため不正なスプライトでシーン全体がクラッシュし、キャッシュも書かれないので
+  リトライしても毎回クラッシュしました。現在 `load_shape()` は広く捕まえて失敗を
+  キャッシュします。
+- **自傷判定には猶予が必要**です。無いと毎フレーム再発します。第 7 章を参照。
+- **頭は最後にスタンプ**します。canvas item は生成順を保持するためです。
+- **胴体の節は path を逆向きに辿って距離を積算**して配置します。フレーム数のオフセット
+  ではありません。さもないと SPEED 中に胴体が伸びて離れてしまいます。
+- **スプライトは中心を基準に描かれます。** 頭の*中心*がアリーナの端まで行けるようにすると
+  スプライトの半分が壁に埋まりました（実測でちょうど 10 px、20×20 の頭の半分）。
+  そのための `WALL_MARGIN` です。
+- **tkinter はフォントを黙って差し替えます。** 選ぶ前に `tkinter.font.families()` で
+  実際に存在するものを確認してください — `engine._pick_font()` がやっています。
