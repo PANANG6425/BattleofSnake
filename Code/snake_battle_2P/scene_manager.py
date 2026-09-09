@@ -7,14 +7,17 @@ instead of creating its own window (turtle only allows one window per process).
 import turtle
 import os
 
+from game_config import (TITLE, BG_COLOR, WIN_W, WIN_H,   # Window settings live in one place
+                         ASSET_DIR as _ASSET_SUBDIR, USE_SPRITES)
+
 wn = turtle.Screen()                            # The single game window for the whole app
-wn.title('Snake Game')
-wn.bgcolor('black')
-wn.setup(width=800, height=600)
+wn.title(TITLE)
+wn.bgcolor(BG_COLOR)
+wn.setup(width=WIN_W, height=WIN_H)
 wn.tracer(0)                                    # Manual screen updates for smooth, controllable frames
 
-ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets')
-USE_SPRITES = True                              # Set False to force plain-square fallback everywhere
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ASSET_DIR = os.path.join(BASE_DIR, _ASSET_SUBDIR)
 
 _shape_cache = {}                                # Memoizes already-registered sprite names -> path/None
 

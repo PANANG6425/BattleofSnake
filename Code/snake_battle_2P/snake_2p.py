@@ -7,6 +7,13 @@ import turtle
 import random
 from scene_manager import wn, go_to_scene, load_shape, STATE
 from characters import by_key
+import powers
+from audio import sfx
+from game_config import (ARENA_2P, SPEED_2P, SEG_SPACING, START_LENGTH, GROW_PER_FRUIT,
+                         MAX_HP, TARGET_SCORE, FRUIT_SCORE, SCORE_PENALTY,
+                         SKILL_MAX, SKILL_GAIN_2P, STUN_FRAMES, SELF_HIT_GRACE_EXTRA,
+                         INVULN_FRAMES, HIT_RADIUS, OBSTACLE_COUNT, OBSTACLE_SIZE,
+                         OBSTACLE_SPOTS, FRUIT_COUNT_2P, FRUIT_MIN_GAP, FRAME_MS, FONT)
 
 def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
     from menu import menu_scene                 # local import avoids a circular import at load time
@@ -14,29 +21,9 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
     wn.title('Snake Battle - Local Multiplayer (P1: WASD | P2: Arrow Keys)')
     wn.bgcolor('black')
 
-    ARENA_L, ARENA_R = -375, 375
-    ARENA_B, ARENA_T = -275, 205
-    BASE_SPEED = 3
-    BOOST_SPEED = 6
-    SEG_SPACING = 15
-    START_LENGTH = 4
-    GROW_PER_FRUIT = 1
-
-    MAX_HP = 3
-    TARGET_SCORE = 500
-    FRUIT_SCORE = 100
-    SCORE_PENALTY = 0.5
-
-    SKILL_MAX = 100
-    SKILL_GAIN = 25
-    SKILL_COST = 50
-    SKILL_FRAMES = 180
-
-    STUN_FRAMES = 30
-    INVULN_FRAMES = 60
-    HIT_RADIUS = 12
-    OBSTACLE_COUNT = 6
-    OBSTACLE_SIZE = 60
+    ARENA_L, ARENA_R, ARENA_B, ARENA_T = ARENA_2P
+    BASE_SPEED = SPEED_2P
+    SKILL_GAIN = SKILL_GAIN_2P
 
     # --- Arena border ---
     border = turtle.Turtle()
@@ -77,7 +64,7 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
     def build_obstacles():
         obstacle_pen.clear()
         obstacles.clear()
-        spots = [(-200, 65), (0, 65), (200, 65), (-200, -135), (0, -135), (200, -135)]
+        spots = OBSTACLE_SPOTS
         for cx, cy in spots[:OBSTACLE_COUNT]:
             draw_obstacle_box(cx, cy, OBSTACLE_SIZE)
 
@@ -105,40 +92,43 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
             self.color_dim = char['dim']
             self.start_pos = start_pos
             self.start_dir = start_dir
-            self.skill_type = skill_type                     # 'SPEED' or 'STEALTH' - chosen at Character Select
-            self.skill_tag = 'SPD' if skill_type == 'SPEED' else 'STL'
+            self.power = powers.by_key(skill_type)   # Chosen at Character Select
+            self.skill_type = self.power['key']
+            self.skill_tag = self.power['tag']
 
             self.head_sprites = {d: load_shape('{}_head_{}'.format(key, d))
                                  for d in ('up', 'down', 'left', 'right')}
             self.ghost_sprites = {d: load_shape('{}_head_{}_ghost'.format(key, d))
                                   for d in ('up', 'down', 'left', 'right')}
             self.body_sprite = load_shape('{}_body'.format(key))
-            self.use_sprites = all(self.head_sprites.values()) and self.body_sprite is not None
+
+            # Head and body are decided SEPARATELY. turtle cannot tint an image shape,
+            # so a .gif carries its own colour and characters.py cannot recolour it.
+            # Splitting the two lets you drop in .gif heads and still have the body take
+            # its colour from characters.py: just do not ship a <key>_body.gif.
+            self.use_head_sprites = all(self.head_sprites.values())
+            self.use_body_sprite = self.body_sprite is not None
 
             self.head = turtle.Turtle()
             self.head.penup()
-            if self.use_sprites:
+            if self.use_head_sprites:
                 self.head.shape(self.head_sprites[start_dir])
             else:
                 self.head.shape('square')
                 self.head.color(self.color_main)
                 self.head.shapesize(0.8, 0.8)
 
+            # The stamper's shape is set per stamp group in render(), because the body
+            # and the head can now be different kinds (image vs coloured square).
             self.stamper = turtle.Turtle()
             self.stamper.penup()
-            if self.use_sprites:
-                self.stamper.shape(self.body_sprite)
-            else:
-                self.stamper.shape('square')
-                self.stamper.color(self.color_main)
-                self.stamper.shapesize(0.65, 0.65)
             self.stamper.hideturtle()
 
             self.reset()
 
         def reset(self):
             self.head.goto(*self.start_pos)
-            if not self.use_sprites:
+            if not self.use_head_sprites:
                 self.head.color(self.color_main)
             self.head.showturtle()
             self.direction = self.start_dir
@@ -152,8 +142,7 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
             self.stun = 0
             self.invuln = 0
             self.self_hit_grace = 0             # Frames left where a self hit cannot retrigger
-            self.boost_timer = 0
-            self.invis_timer = 0
+            powers.init(self)                   # {power key -> frames left}; no per-power attrs
             self.stamper.clearstamps()
 
         def segments(self):
@@ -177,27 +166,18 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
                 self.direction = new_dir
                 self.facing = new_dir
 
-        def use_speed_boost(self):                  # Only works if SPEED was chosen at Character Select
-            if self.skill_type != 'SPEED':
-                return
-            if self.skill >= SKILL_COST and self.boost_timer == 0:
-                self.skill -= SKILL_COST
-                self.boost_timer = SKILL_FRAMES
-
-        def use_invisibility(self):                 # Only works if STEALTH was chosen at Character Select
-            if self.skill_type != 'STEALTH':
-                return
-            if self.skill >= SKILL_COST and self.invis_timer == 0:
-                self.skill -= SKILL_COST
-                self.invis_timer = SKILL_FRAMES
+        def use_power(self):
+            # One key per player fires whichever power they picked, so the registry
+            # can grow past two without running out of keys to bind.
+            if powers.activate(self):
+                sfx.play('power')
 
         def tick_timers(self):
             if self.stun > 0: self.stun -= 1
             if self.invuln > 0: self.invuln -= 1
             if self.self_hit_grace > 0: self.self_hit_grace -= 1
-            if self.boost_timer > 0: self.boost_timer -= 1
-            if self.invis_timer > 0: self.invis_timer -= 1
-            self.speed = BOOST_SPEED if self.boost_timer > 0 else BASE_SPEED
+            powers.tick(self)
+            self.speed = BASE_SPEED * powers.effect(self, 'speed_mult', 1.0)
 
         def move(self):
             if self.stun > 0 or self.direction == 'stop':
@@ -210,13 +190,14 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
 
             bumped = False
             if x > ARENA_R or x < ARENA_L or y > ARENA_T or y < ARENA_B:
-                bumped = True
-            elif inside_obstacle(x, y, pad=6):
-                bumped = True
+                bumped = True                   # The outer wall always stops you
+            elif inside_obstacle(x, y, pad=6) and not powers.flag(self, 'noclip'):
+                bumped = True                   # PHASE slips through the boxes
 
             if bumped:
                 self.stun = STUN_FRAMES
                 self.direction = 'stop'
+                sfx.play('bump')
                 return
 
             self.head.goto(x, y)
@@ -227,35 +208,41 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
 
         def render(self):
             self.stamper.clearstamps()
-            cloaked = self.invis_timer > 0
+            cloaked = powers.flag(self, 'cloak')
             blinking = self.invuln > 0 and (self.invuln // 4) % 2 == 0
 
-            if self.use_sprites:
-                self.head.hideturtle()
-                if not cloaked:
+            # 1. BODY, stamped first. The head goes on top of it, and turtle canvas
+            #    items keep creation order, so the head has to be stamped last.
+            if not cloaked:                     # CLOAK hides the body entirely
+                if self.use_body_sprite:
                     self.stamper.shape(self.body_sprite)
-                    for pos in self.segments():
-                        self.stamper.goto(pos)
-                        self.stamper.stamp()
-                if not blinking:
-                    table = self.ghost_sprites if cloaked else self.head_sprites
-                    self.stamper.shape(table.get(self.facing) or self.head_sprites[self.facing])
-                    self.stamper.goto(self.head.pos())
-                    self.stamper.stamp()
-                return
-
-            if cloaked:
-                self.head.color(self.color_dim)
-            elif blinking:
-                self.head.color('white')
-            else:
-                self.head.color(self.color_main)
-
-            if not cloaked:
-                self.stamper.color(self.color_main)
+                else:
+                    self.stamper.shape('square')
+                    self.stamper.color(self.color_main)   # <- body colour, from characters.py
+                    self.stamper.shapesize(0.65, 0.65)
                 for pos in self.segments():
                     self.stamper.goto(pos)
                     self.stamper.stamp()
+
+            # 2. HEAD
+            if self.use_head_sprites:
+                self.head.hideturtle()          # The sprite head is stamped, not shown
+                if not blinking:                # Blink = skip a frame after taking a hit
+                    use_ghost = cloaked and all(self.ghost_sprites.values())
+                    table = self.ghost_sprites if use_ghost else self.head_sprites
+                    self.stamper.shape(table[self.facing])
+                    self.stamper.goto(self.head.pos())
+                    self.stamper.stamp()
+            else:
+                self.head.showturtle()
+                self.head.shape('square')
+                self.head.shapesize(0.8, 0.8)
+                if cloaked:
+                    self.head.color(self.color_dim)
+                elif blinking:
+                    self.head.color('white')
+                else:
+                    self.head.color(self.color_main)
 
     p1 = Snake('P1', p1_char, (-250, -35), 'right', p1_skill)
     p2 = Snake('P2', p2_char, (250, -35), 'left', p2_skill)
@@ -272,14 +259,14 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
                 continue
             # Keep fruits apart, otherwise two can land on the same spot and one
             # touch scores both of them at once.
-            if any(f is not skip and f.distance(x, y) < 40 for f in fruits):
+            if any(f is not skip and f.distance(x, y) < FRUIT_MIN_GAP for f in fruits):
                 continue
             return x, y
         return 0, 0
 
     fruit_sprite = load_shape('fruit')
     fruits = []
-    for _ in range(2):
+    for _ in range(FRUIT_COUNT_2P):
         f = turtle.Turtle()
         f.penup()
         if fruit_sprite:
@@ -313,20 +300,26 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
     wn.onkeypress(p2_down, 'Down')
     wn.onkeypress(p2_left, 'Left')
     wn.onkeypress(p2_right, 'Right')
-    wn.onkeypress(p1.use_speed_boost, 'q')
-    wn.onkeypress(p1.use_invisibility, 'e')
-    wn.onkeypress(p2.use_speed_boost, 'o')
-    wn.onkeypress(p2.use_invisibility, 'p')
+    # One power key per player, whatever power they picked. E and P stay bound as
+    # aliases so the old muscle memory still works.
+    wn.onkeypress(p1.use_power, 'q')
+    wn.onkeypress(p1.use_power, 'e')
+    wn.onkeypress(p2.use_power, 'o')
+    wn.onkeypress(p2.use_power, 'p')
+    wn.onkeypress(sfx.toggle, 'x')
     wn.onkeypress(to_menu, 'm')
 
     # --- Combat & scoring ---
     def apply_damage(victim):
         if victim.invuln > 0:
             return False
+        if powers.flag(victim, 'invincible'):   # SHIELD
+            return False
         victim.hp -= 1
         victim.score = int(victim.score * SCORE_PENALTY)
         victim.invuln = INVULN_FRAMES
         victim.stun = STUN_FRAMES
+        sfx.play('hit')
         return True
 
     def resolve_attacks(attacker, defender):
@@ -362,20 +355,23 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
         """
         if snake.self_hit_grace > 0:            # Still recovering from the last self hit
             return
+        if powers.flag(snake, 'noclip'):        # PHASE slips through your own tail
+            return
         segs = snake.segments()
         for pos in segs[2:]:                    # Skip the 2 segments right behind the head
             if snake.head.distance(pos) < HIT_RADIUS - 2:
                 snake.stun = STUN_FRAMES
-                snake.self_hit_grace = STUN_FRAMES + 40   # Stun, plus time to coast clear
+                snake.self_hit_grace = STUN_FRAMES + SELF_HIT_GRACE_EXTRA
                 return
 
     def resolve_fruit(snake):
         for f in fruits:
             if snake.head.distance(f) < 18:
-                snake.score += FRUIT_SCORE
+                snake.score += int(FRUIT_SCORE * powers.effect(snake, 'score_mult', 1.0))
                 snake.length += GROW_PER_FRUIT
                 snake.skill = min(SKILL_MAX, snake.skill + SKILL_GAIN)
                 f.goto(random_free_spot(skip=f))
+                sfx.play('eat')
                 return                          # One fruit per frame, per player
 
     # --- HUD ---
@@ -464,8 +460,7 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
             draw_skill_bar(geo['bar_x'], 224, ratio, pl.color_main)
 
             tags = []
-            if pl.boost_timer > 0: tags.append('BOOST')
-            if pl.invis_timer > 0: tags.append('CLOAK')
+            tags = powers.hud_tags(pl)      # One label per running power
             if pl.stun > 0: tags.append('STUN')
             if tags:
                 hud.color('#dddddd')
@@ -478,7 +473,7 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
         hud.write('FIRST TO {}'.format(TARGET_SCORE), align='center', font=('Courier', 12, 'bold'))
         hud.color('#4a4a4a')
         hud.goto(0, -272)
-        hud.write('P1: WASD  Q=Boost E=Cloak     |     P2: Arrows  O=Boost P=Cloak     |     M = Menu',
+        hud.write('P1: WASD Q=Power  |  P2: Arrows O=Power  |  X = Sound  M = Menu',
                    align='center', font=('Courier', 10, 'normal'))
 
     # --- Win condition & result screen ---
@@ -530,6 +525,7 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
         result_pen.write('P1  score {}  hp {}     |     P2  score {}  hp {}'.format(
             p1.score, max(0, p1.hp), p2.score, max(0, p2.hp)),
             align='center', font=('Courier', 13, 'normal'))
+        sfx.play('win')
         result_pen.goto(0, -80)
         result_pen.color('gray')
         result_pen.write('Press R to play again     |     M for Menu', align='center', font=('Courier', 12, 'normal'))
@@ -568,6 +564,6 @@ def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
             return
 
         wn.update()
-        wn.ontimer(game_loop, 16)
+        wn.ontimer(game_loop, FRAME_MS)
 
     game_loop()

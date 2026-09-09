@@ -162,3 +162,24 @@ _eye.addcomponent(((-10, 0), (-5, 6), (5, 6), (10, 0), (5, -6), (-5, -6)), 'whit
 _eye.addcomponent(circle_points(3), 'black', 'black')
 _eye.addcomponent(((-10, -8), (-8, -10), (10, 8), (8, 10)), 'red', 'red')
 wn.register_shape('stealth_icon', _eye)
+
+# --- Icons for the rest of the power registry (powers.py) ---
+# Authored in screen coordinates like everything else here, so display them through
+# shape_turtle(), which sets heading 90 to cancel turtle's built-in shape rotation.
+
+_shield = turtle.Shape('compound')              # SHIELD: a crest with a bright core
+_shield.addcomponent(((-9, 9), (9, 9), (9, -1), (0, -10), (-9, -1)), '#6fb7ff', '#1c4a7a')
+_shield.addcomponent(((-4, 6), (4, 6), (4, 0), (0, -5), (-4, 0)), '#eaf5ff', '#eaf5ff')
+wn.register_shape('shield_icon', _shield)
+
+_phase = turtle.Shape('compound')               # PHASE: an arrow passing through a wall
+_phase.addcomponent(((-2, 10), (2, 10), (2, -10), (-2, -10)), '#5a5a6e', '#5a5a6e')
+_phase.addcomponent(((-10, 2), (3, 2), (3, 5), (10, 0), (3, -5), (3, -2), (-10, -2)),
+                    '#c86ef0', '#efd6ff')
+wn.register_shape('phase_icon', _phase)
+
+_feast = turtle.Shape('compound')               # FEAST: fruit with a sparkle
+_feast.addcomponent(tuple((x, y - 1) for x, y in circle_points(8, 12)), '#e8203a', '#7a0a18')
+_feast.addcomponent(((0, 7), (2, 11), (6, 9), (3, 13), (5, 16), (0, 14), (-4, 16),
+                     (-2, 13), (-5, 9), (-2, 11)), '#ffe08a', '#ffe08a')
+wn.register_shape('feast_icon', _feast)

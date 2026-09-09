@@ -1,12 +1,27 @@
 """
-snake_1p.py - single player classic snake + one chosen power (SPEED or
-STEALTH), picked on the Character Select screen.
+snake_1p.py - single player classic snake plus the one power picked on Character
+Select. Any power in powers.py works here; the effects this mode honours are
+speed_mult, cloak, score_mult, and noclip / invincible (which let you survive
+running into your own tail). The outer wall is always fatal.
 """
 
 import turtle
 import random
 from scene_manager import wn, go_to_scene, load_shape, STATE
 from characters import by_key
+import powers
+from audio import sfx
+from game_config import (ARENA_1P, SPEED_1P, SEG_SPACING, START_LENGTH, SKILL_MAX,
+                         SKILL_GAIN_1P, FRUIT_SCORE, FRAME_MS)
+
+
+class _Carrier:
+    """Minimal object so powers.py can drive 1P too.
+
+    2P has a Snake class to hang power state on; 1P keeps its state in a dict, so
+    this holds just the three attributes powers.py touches: power, skill, effects.
+    """
+    __slots__ = ('power', 'skill', 'effects')
 
 def game_1p_scene(epoch, char_key, skill):
     from menu import menu_scene                 # local import avoids a circular import at load time
@@ -15,17 +30,14 @@ def game_1p_scene(epoch, char_key, skill):
     wn.title('Snake - 1 Player ({} / {})'.format(char['name'], skill))
     wn.bgcolor('black')
 
-    ARENA_L, ARENA_R = -380, 380
-    ARENA_B, ARENA_T = -280, 260
-    BASE_SPEED = 4
-    BOOST_SPEED = 8
-    SEG_SPACING = 15
-    START_LENGTH = 4
-    SKILL_MAX = 100
-    SKILL_GAIN = 20
-    SKILL_COST = 50
-    SKILL_FRAMES = 180
-    FRUIT_SCORE = 100
+    ARENA_L, ARENA_R, ARENA_B, ARENA_T = ARENA_1P
+    BASE_SPEED = SPEED_1P
+    SKILL_GAIN = SKILL_GAIN_1P
+
+    me = _Carrier()                             # Power state for this run
+    me.power = powers.by_key(skill)
+    me.skill = 0
+    powers.init(me)
 
     border = turtle.Turtle()
     border.color('gray')
@@ -44,11 +56,17 @@ def game_1p_scene(epoch, char_key, skill):
     head_sprites = {d: load_shape('{}_head_{}'.format(key, d)) for d in ('up', 'down', 'left', 'right')}
     ghost_sprites = {d: load_shape('{}_head_{}_ghost'.format(key, d)) for d in ('up', 'down', 'left', 'right')}
     body_sprite = load_shape('{}_body'.format(key))
-    use_sprites = all(head_sprites.values()) and body_sprite is not None
+
+    # Head and body are decided SEPARATELY. turtle cannot tint an image shape, so a
+    # .gif carries its own colour. Splitting the two lets you drop in .gif heads and
+    # still have the body take its colour from characters.py: just do not ship a
+    # <key>_body.gif.
+    use_head_sprites = all(head_sprites.values())
+    use_body_sprite = body_sprite is not None
 
     head = turtle.Turtle()
     head.penup()
-    if use_sprites:
+    if use_head_sprites:
         head.shape(head_sprites['right'])
     else:
         head.shape('square')
@@ -56,15 +74,11 @@ def game_1p_scene(epoch, char_key, skill):
         head.shapesize(0.8, 0.8)
     head.goto(0, 0)
 
+    # The stamper's shape is set per stamp group in render(), because the body and the
+    # head can now be different kinds (image vs coloured square).
     stamper = turtle.Turtle()
     stamper.penup()
     stamper.hideturtle()
-    if use_sprites:
-        stamper.shape(body_sprite)
-    else:
-        stamper.shape('square')
-        stamper.color(char['main'])
-        stamper.shapesize(0.65, 0.65)
 
     fruit_sprite = load_shape('fruit')
     fruit = turtle.Turtle()
@@ -78,8 +92,7 @@ def game_1p_scene(epoch, char_key, skill):
 
     state = {
         'direction': 'stop', 'facing': 'right', 'length': START_LENGTH,
-        'path': [(0, 0)], 'score': 0, 'skill': 0, 'speed': BASE_SPEED,
-        'boost_timer': 0, 'invis_timer': 0, 'active': True,
+        'path': [(0, 0)], 'score': 0, 'speed': BASE_SPEED, 'active': True,
     }
 
     def random_free_spot():
@@ -103,14 +116,10 @@ def game_1p_scene(epoch, char_key, skill):
     def go_right(): turn('right', 'left')
 
     def use_skill():
-        if state['skill'] < SKILL_COST:
-            return
-        if skill == 'SPEED' and state['boost_timer'] == 0:
-            state['skill'] -= SKILL_COST
-            state['boost_timer'] = SKILL_FRAMES
-        elif skill == 'STEALTH' and state['invis_timer'] == 0:
-            state['skill'] -= SKILL_COST
-            state['invis_timer'] = SKILL_FRAMES
+        if powers.activate(me):                 # Works for every power in the registry
+            sfx.play('power')
+            draw_hud()
+            wn.update()
 
     result_pen = turtle.Turtle()
     result_pen.hideturtle()
@@ -130,6 +139,7 @@ def game_1p_scene(epoch, char_key, skill):
     wn.onkeypress(go_left, 'Left')
     wn.onkeypress(go_right, 'Right')
     wn.onkeypress(use_skill, 'space')
+    wn.onkeypress(sfx.toggle, 'x')
     wn.onkeypress(retry, 'r')
     wn.onkeypress(to_menu, 'm')
 
@@ -172,7 +182,7 @@ def game_1p_scene(epoch, char_key, skill):
             bar_pen.forward(h)
             bar_pen.left(90)
         bar_pen.penup()
-        ratio = max(0.0, min(1.0, state['skill'] / SKILL_MAX))
+        ratio = max(0.0, min(1.0, me.skill / SKILL_MAX))
         fill_w = (w - 4) * ratio
         if fill_w >= 1:
             bar_pen.goto(left + 2, bottom + 2)
@@ -193,39 +203,48 @@ def game_1p_scene(epoch, char_key, skill):
         hud.goto(-380, 268)
         hud.write('SCORE: {}'.format(state['score']), font=('Courier', 14, 'bold'))
         draw_skill_bar()
-        tag = 'BOOST!' if state['boost_timer'] > 0 else ('CLOAK!' if state['invis_timer'] > 0 else '')
+        tag = '  '.join(powers.hud_tags(me))    # One label per running power
         hud.color('gold')
         hud.goto(0, 268)
         hud.write(tag, align='center', font=('Courier', 12, 'bold'))
         hud.color('#8a93a3')
         hud.goto(380, 268)
-        hud.write('{} [{}]'.format(char['name'], skill), align='right', font=('Courier', 12, 'bold'))
+        hud.write('{} [{}]'.format(char['name'], me.power['name']),
+                   align='right', font=('Courier', 12, 'bold'))
         hud.color('#4a4a4a')
         hud.goto(0, -272)
-        hud.write('Arrows = Move   SPACE = {}   R = Retry   M = Menu'.format(skill),
+        hud.write('Arrows = Move   SPACE = {}   R = Retry   X = Sound   M = Menu'.format(me.power['name']),
                    align='center', font=('Courier', 10, 'normal'))
 
     def render():
         stamper.clearstamps()
-        cloaked = state['invis_timer'] > 0
-        if use_sprites:
-            head.hideturtle()
-            table = ghost_sprites if cloaked else head_sprites
-            if not cloaked:
+        cloaked = powers.flag(me, 'cloak')
+
+        # 1. BODY first - the head is stamped last so it sits on top
+        if not cloaked:                         # CLOAK hides the body entirely
+            if use_body_sprite:
                 stamper.shape(body_sprite)
-                for pos in segments():
-                    stamper.goto(pos)
-                    stamper.stamp()
-            stamper.shape(table.get(state['facing']) or head_sprites[state['facing']])
+            else:
+                stamper.shape('square')
+                stamper.color(char['main'])     # <- body colour, from characters.py
+                stamper.shapesize(0.65, 0.65)
+            for pos in segments():
+                stamper.goto(pos)
+                stamper.stamp()
+
+        # 2. HEAD
+        if use_head_sprites:
+            head.hideturtle()                   # The sprite head is stamped, not shown
+            use_ghost = cloaked and all(ghost_sprites.values())
+            table = ghost_sprites if use_ghost else head_sprites
+            stamper.shape(table[state['facing']])
             stamper.goto(head.pos())
             stamper.stamp()
         else:
+            head.showturtle()
+            head.shape('square')
+            head.shapesize(0.8, 0.8)
             head.color(char['dim'] if cloaked else char['main'])
-            if not cloaked:
-                stamper.color(char['main'])
-                for pos in segments():
-                    stamper.goto(pos)
-                    stamper.stamp()
 
     def game_over():
         state['active'] = False
@@ -238,6 +257,7 @@ def game_1p_scene(epoch, char_key, skill):
         result_pen.write('GAME OVER', align='center', font=('Courier', 26, 'bold'))
         result_pen.goto(0, -10)
         result_pen.write('Score: {}'.format(state['score']), align='center', font=('Courier', 18, 'bold'))
+        sfx.play('lose')
         result_pen.color('gray')
         result_pen.goto(0, -50)
         result_pen.write('R = Retry     M = Menu', align='center', font=('Courier', 12, 'normal'))
@@ -247,11 +267,8 @@ def game_1p_scene(epoch, char_key, skill):
         if STATE['epoch'] != epoch or not state['active']:
             return
 
-        if state['boost_timer'] > 0:
-            state['boost_timer'] -= 1
-        if state['invis_timer'] > 0:
-            state['invis_timer'] -= 1
-        state['speed'] = BOOST_SPEED if state['boost_timer'] > 0 else BASE_SPEED
+        powers.tick(me)
+        state['speed'] = BASE_SPEED * powers.effect(me, 'speed_mult', 1.0)
 
         if state['direction'] != 'stop':
             x, y = head.xcor(), head.ycor()
@@ -270,21 +287,24 @@ def game_1p_scene(epoch, char_key, skill):
             if len(state['path']) > keep:
                 del state['path'][:-keep]
 
-            if state['invis_timer'] == 0:            # STEALTH lets you phase through your own tail
+            # CLOAK, PHASE and SHIELD all let you run over your own tail
+            if not (powers.flag(me, 'cloak') or powers.flag(me, 'noclip')
+                    or powers.flag(me, 'invincible')):
                 for pos in segments()[2:]:
                     if head.distance(pos) < 10:
                         game_over()
                         return
 
             if head.distance(fruit) < 18:
-                state['score'] += FRUIT_SCORE
+                state['score'] += int(FRUIT_SCORE * powers.effect(me, 'score_mult', 1.0))
                 state['length'] += 1
-                state['skill'] = min(SKILL_MAX, state['skill'] + SKILL_GAIN)
+                me.skill = min(SKILL_MAX, me.skill + SKILL_GAIN)
                 fruit.goto(random_free_spot())
+                sfx.play('eat')
 
         render()
         draw_hud()
         wn.update()
-        wn.ontimer(loop, 16)
+        wn.ontimer(loop, FRAME_MS)
 
     loop()
