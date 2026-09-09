@@ -74,6 +74,10 @@ Code/snake_battle_2P/
 `audio` / `entity` がその上に乗る → `screens` / `solo` / `battle` →
 `main` は誰からも import されません。
 
+> **どのファイルがどのファイルを呼ぶか、何行目か** — [CODE_REVIEW.ja.md](CODE_REVIEW.ja.md) を参照。
+> 双方向の import 表（呼ぶ側 / 呼ばれる側）と行番号、レビュー結果があります。
+> 依存関係は `ast` で抽出しているので、行番号はコードと一致します。
+
 `snake_battle_2P.py`（最初の 633 行の単一ファイル版）は**削除済み**です。誰も import して
 いませんでした。中身を見たい場合は
 `git show 33d5b4c:Code/snake_battle_2P/snake_battle_2P.py`

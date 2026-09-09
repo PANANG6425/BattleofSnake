@@ -71,6 +71,10 @@ Code/snake_battle_2P/
 **ทิศทาง import** — `config` ไม่ import อะไรเลย → `engine` สร้าง Screen → `audio` / `entity`
 ต่อยอด → `screens` / `solo` / `battle` → `main` ไม่มีใคร import
 
+> **อยากรู้ว่าไฟล์ไหนเรียกไฟล์ไหน บรรทัดที่เท่าไหร่** — ดู [CODE_REVIEW.md](CODE_REVIEW.md)
+> ([日本語](CODE_REVIEW.ja.md)) มีตาราง import ทั้ง 2 ทาง (เรียกใคร / ถูกเรียกโดยใคร)
+> พร้อมเลขบรรทัด และผลรีวิวโค้ด
+
 `snake_battle_2P.py` (ไฟล์เดียว 633 บรรทัดเวอร์ชันแรกสุด) **ลบออกไปแล้ว** ไม่มีใคร import
 ถ้าอยากดูย้อนหลังใช้ `git show 33d5b4c:Code/snake_battle_2P/snake_battle_2P.py`
 

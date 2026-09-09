@@ -73,6 +73,9 @@ Code/snake_battle_2P/
 **Import direction** — `config` imports nothing → `engine` creates the Screen →
 `audio` / `entity` build on it → `screens` / `solo` / `battle` → nothing imports `main`.
 
+> **Which file calls which, at what line** — see [CODE_REVIEW.md](CODE_REVIEW.md):
+> the import graph both ways (imports / imported by) with line numbers, plus the review findings.
+
 `snake_battle_2P.py` (the original 633-line single file) **has been deleted**; nothing
 imported it. To read it back: `git show 33d5b4c:Code/snake_battle_2P/snake_battle_2P.py`
 
