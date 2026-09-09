@@ -12,14 +12,14 @@ game picks it up automatically - no code changes needed.
 import os                                       # For building the assets/ output path
 from PIL import Image, ImageDraw, ImageOps      # Pillow: image creation, drawing and mask inversion
 
+from characters import CHARACTERS               # The roster is the single source of truth
+
 SS = 4                                          # Supersampling factor: draw big, then shrink for smooth edges
 ASSET_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'assets') # Output folder
 
-# Per-player palettes: (main, dark outline, light highlight, ghost main, ghost outline)
-PALETTES = {
-    'p1': ('#22e0e0', '#0b6a6a', '#b6ffff', '#0e3d3d', '#082424'), # Player 1: cyan family
-    'p2': ('#ffa22a', '#8a4a00', '#ffe0a8', '#4a2f0c', '#241705'), # Player 2: orange family
-}
+# Palettes come from characters.py: (main, dark outline, light highlight, ghost main,
+# ghost outline). Add a character there and its sprites appear here automatically.
+PALETTES = {c['key']: c['palette'] for c in CHARACTERS}
 
 
 def new_canvas(w, h):                           # Create a transparent supersampled RGBA canvas
@@ -107,7 +107,7 @@ def build_all():                                # Generate and write every sprit
     # Rotation applied to the right-facing artwork to produce each facing direction
     rotations = {'right': 0, 'up': 90, 'left': 180, 'down': 270}
 
-    for key in ('p1', 'p2'):                    # Both players get a full sprite set
+    for key in PALETTES:                        # Every character gets a full sprite set
         for ghost in (False, True):             # Normal set plus the cloaked (Invisibility) set
             suffix = '_ghost' if ghost else ''  # Filename suffix for the cloaked variant
             head, hsize = make_head(key, ghost) # Draw the head once, facing right

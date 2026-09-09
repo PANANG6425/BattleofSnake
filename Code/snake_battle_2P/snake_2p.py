@@ -6,8 +6,9 @@ skill button only works if it matches what they picked on Character Select.
 import turtle
 import random
 from scene_manager import wn, go_to_scene, load_shape, STATE
+from characters import by_key
 
-def game_2p_scene(epoch, p1_skill, p2_skill):
+def game_2p_scene(epoch, p1_char, p1_skill, p2_char, p2_skill):
     from menu import menu_scene                 # local import avoids a circular import at load time
 
     wn.title('Snake Battle - Local Multiplayer (P1: WASD | P2: Arrow Keys)')
@@ -90,11 +91,18 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
 
     # --- Snake entity (shared by both players) ---
     class Snake:
-        def __init__(self, name, key, color, dim_color, start_pos, start_dir, skill_type):
-            self.name = name
-            self.key = key
-            self.color_main = color
-            self.color_dim = dim_color
+        def __init__(self, slot, char_key, start_pos, start_dir, skill_type):
+            # slot is the seat ('P1' / 'P2') and drives the HUD side. char_key is the
+            # chosen character, and doubles as the sprite filename prefix. They are
+            # separate now that either seat can pick any character.
+            char = by_key(char_key)
+            self.slot = slot
+            self.name = slot
+            self.char_name = char['name']
+            self.key = char['key']
+            key = self.key
+            self.color_main = char['main']
+            self.color_dim = char['dim']
             self.start_pos = start_pos
             self.start_dir = start_dir
             self.skill_type = skill_type                     # 'SPEED' or 'STEALTH' - chosen at Character Select
@@ -113,7 +121,7 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
                 self.head.shape(self.head_sprites[start_dir])
             else:
                 self.head.shape('square')
-                self.head.color(color)
+                self.head.color(self.color_main)
                 self.head.shapesize(0.8, 0.8)
 
             self.stamper = turtle.Turtle()
@@ -122,7 +130,7 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
                 self.stamper.shape(self.body_sprite)
             else:
                 self.stamper.shape('square')
-                self.stamper.color(color)
+                self.stamper.color(self.color_main)
                 self.stamper.shapesize(0.65, 0.65)
             self.stamper.hideturtle()
 
@@ -143,6 +151,7 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
             self.speed = BASE_SPEED
             self.stun = 0
             self.invuln = 0
+            self.self_hit_grace = 0             # Frames left where a self hit cannot retrigger
             self.boost_timer = 0
             self.invis_timer = 0
             self.stamper.clearstamps()
@@ -185,6 +194,7 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
         def tick_timers(self):
             if self.stun > 0: self.stun -= 1
             if self.invuln > 0: self.invuln -= 1
+            if self.self_hit_grace > 0: self.self_hit_grace -= 1
             if self.boost_timer > 0: self.boost_timer -= 1
             if self.invis_timer > 0: self.invis_timer -= 1
             self.speed = BOOST_SPEED if self.boost_timer > 0 else BASE_SPEED
@@ -247,8 +257,8 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
                     self.stamper.goto(pos)
                     self.stamper.stamp()
 
-    p1 = Snake('P1', 'p1', '#22e0e0', '#0d3a3a', (-250, -35), 'right', p1_skill)
-    p2 = Snake('P2', 'p2', '#ffa22a', '#3a260d', (250, -35), 'left', p2_skill)
+    p1 = Snake('P1', p1_char, (-250, -35), 'right', p1_skill)
+    p2 = Snake('P2', p2_char, (250, -35), 'left', p2_skill)
     players = [p1, p2]
 
     # --- Fruits ---
@@ -338,11 +348,25 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
                 return
 
     def resolve_self_collision(snake):
+        """Running into your own body costs a short stun, never HP.
+
+        This used to DEADLOCK the snake permanently. It set direction='stop', and move()
+        returns early while stunned, so the head never left its own body - which meant
+        this check fired again on the very next frame, resetting the stun to 30 forever.
+        The snake froze and no key press could recover it, because turn() was overwritten
+        by direction='stop' again a frame later.
+
+        Two changes break the loop: a grace window so one self hit cannot retrigger, and
+        keeping the current direction so the snake coasts out of its own coil once the
+        stun ends, with no key press needed.
+        """
+        if snake.self_hit_grace > 0:            # Still recovering from the last self hit
+            return
         segs = snake.segments()
-        for pos in segs[2:]:
+        for pos in segs[2:]:                    # Skip the 2 segments right behind the head
             if snake.head.distance(pos) < HIT_RADIUS - 2:
                 snake.stun = STUN_FRAMES
-                snake.direction = 'stop'
+                snake.self_hit_grace = STUN_FRAMES + 40   # Stun, plus time to coast clear
                 return
 
     def resolve_fruit(snake):
@@ -371,22 +395,22 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
     HEART_STEP = 22
     BAR_W, BAR_H = 132, 12
     PANEL = {
-        'p1': {'heart_x': -356, 'dir': 1, 'text_x': -356, 'align': 'left', 'bar_x': -358},
-        'p2': {'heart_x': 356, 'dir': -1, 'text_x': 356, 'align': 'right', 'bar_x': 358 - BAR_W},
+        'P1': {'heart_x': -356, 'dir': 1, 'text_x': -356, 'align': 'left', 'bar_x': -358},
+        'P2': {'heart_x': 356, 'dir': -1, 'text_x': 356, 'align': 'right', 'bar_x': 358 - BAR_W},
     }
 
     heart_icons = {}
     if USE_HEART_ICONS:
         for pl in players:
             pool = []
-            geo = PANEL[pl.key]
+            geo = PANEL[pl.slot]
             for i in range(MAX_HP):
                 icon = turtle.Turtle()
                 icon.penup()
                 icon.shape(HEART_FULL)
                 icon.goto(geo['heart_x'] + geo['dir'] * i * HEART_STEP, HEART_Y)
                 pool.append(icon)
-            heart_icons[pl.key] = pool
+            heart_icons[pl.slot] = pool
 
     def draw_skill_bar(left, bottom, ratio, color):
         bar_pen.penup()
@@ -419,9 +443,9 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
         hud.clear()
         bar_pen.clear()
         for pl in players:
-            geo = PANEL[pl.key]
+            geo = PANEL[pl.slot]
             if USE_HEART_ICONS:
-                for i, icon in enumerate(heart_icons[pl.key]):
+                for i, icon in enumerate(heart_icons[pl.slot]):
                     icon.shape(HEART_FULL if i < pl.hp else HEART_EMPTY)
                     icon.showturtle()
                 score_x = geo['text_x'] + geo['dir'] * (MAX_HP * HEART_STEP + 4)
@@ -433,7 +457,7 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
 
             hud.color(pl.color_main)
             hud.goto(score_x, HEART_Y - 7)
-            hud.write('{} [{}]  {}'.format(pl.name, pl.skill_tag, pl.score),
+            hud.write('{} {} [{}] {}'.format(pl.slot, pl.char_name, pl.skill_tag, pl.score),
                        align=geo['align'], font=('Courier', 14, 'bold'))
 
             ratio = max(0.0, min(1.0, pl.skill / SKILL_MAX))
@@ -514,7 +538,7 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
     def do_restart():
         if game_active['value']:
             return
-        go_to_scene(game_2p_scene, p1_skill, p2_skill)
+        go_to_scene(game_2p_scene, p1_char, p1_skill, p2_char, p2_skill)
 
     wn.onkeypress(do_restart, 'r')
 

@@ -6,11 +6,13 @@ STEALTH), picked on the Character Select screen.
 import turtle
 import random
 from scene_manager import wn, go_to_scene, load_shape, STATE
+from characters import by_key
 
-def game_1p_scene(epoch, skill):
+def game_1p_scene(epoch, char_key, skill):
     from menu import menu_scene                 # local import avoids a circular import at load time
 
-    wn.title('Snake - 1 Player ({})'.format(skill))
+    char = by_key(char_key)                     # Chosen at Character Select: colour only
+    wn.title('Snake - 1 Player ({} / {})'.format(char['name'], skill))
     wn.bgcolor('black')
 
     ARENA_L, ARENA_R = -380, 380
@@ -38,9 +40,10 @@ def game_1p_scene(epoch, skill):
         border.right(90)
     border.hideturtle()
 
-    head_sprites = {d: load_shape('p1_head_{}'.format(d)) for d in ('up', 'down', 'left', 'right')}
-    ghost_sprites = {d: load_shape('p1_head_{}_ghost'.format(d)) for d in ('up', 'down', 'left', 'right')}
-    body_sprite = load_shape('p1_body')
+    key = char['key']                           # Sprite filename prefix for this character
+    head_sprites = {d: load_shape('{}_head_{}'.format(key, d)) for d in ('up', 'down', 'left', 'right')}
+    ghost_sprites = {d: load_shape('{}_head_{}_ghost'.format(key, d)) for d in ('up', 'down', 'left', 'right')}
+    body_sprite = load_shape('{}_body'.format(key))
     use_sprites = all(head_sprites.values()) and body_sprite is not None
 
     head = turtle.Turtle()
@@ -49,7 +52,7 @@ def game_1p_scene(epoch, skill):
         head.shape(head_sprites['right'])
     else:
         head.shape('square')
-        head.color('#22e0e0')
+        head.color(char['main'])
         head.shapesize(0.8, 0.8)
     head.goto(0, 0)
 
@@ -60,7 +63,7 @@ def game_1p_scene(epoch, skill):
         stamper.shape(body_sprite)
     else:
         stamper.shape('square')
-        stamper.color('#22e0e0')
+        stamper.color(char['main'])
         stamper.shapesize(0.65, 0.65)
 
     fruit_sprite = load_shape('fruit')
@@ -116,7 +119,7 @@ def game_1p_scene(epoch, skill):
     def retry():
         if state['active']:
             return
-        go_to_scene(game_1p_scene, skill)
+        go_to_scene(game_1p_scene, char_key, skill)
 
     def to_menu():
         go_to_scene(menu_scene)
@@ -173,7 +176,7 @@ def game_1p_scene(epoch, skill):
         fill_w = (w - 4) * ratio
         if fill_w >= 1:
             bar_pen.goto(left + 2, bottom + 2)
-            bar_pen.color('#22e0e0')
+            bar_pen.color(char['main'])
             bar_pen.pendown()
             bar_pen.begin_fill()
             for _ in range(2):
@@ -196,7 +199,7 @@ def game_1p_scene(epoch, skill):
         hud.write(tag, align='center', font=('Courier', 12, 'bold'))
         hud.color('#8a93a3')
         hud.goto(380, 268)
-        hud.write('[{}]'.format(skill), align='right', font=('Courier', 12, 'bold'))
+        hud.write('{} [{}]'.format(char['name'], skill), align='right', font=('Courier', 12, 'bold'))
         hud.color('#4a4a4a')
         hud.goto(0, -272)
         hud.write('Arrows = Move   SPACE = {}   R = Retry   M = Menu'.format(skill),
@@ -217,9 +220,9 @@ def game_1p_scene(epoch, skill):
             stamper.goto(head.pos())
             stamper.stamp()
         else:
-            head.color('#0d3a3a' if cloaked else '#22e0e0')
+            head.color(char['dim'] if cloaked else char['main'])
             if not cloaked:
-                stamper.color('#22e0e0')
+                stamper.color(char['main'])
                 for pos in segments():
                     stamper.goto(pos)
                     stamper.stamp()

@@ -75,13 +75,26 @@ def clear_all_turtles():                        # Destroy every turtle from the 
             t.penup()                           # Never draw on a later move
         except Exception:
             pass
-        # clear() leaves the turtle holding a fresh empty line item, and the cursor
-        # polygon is a canvas item of its own. Both outlive the turtle unless deleted
-        # here, which is what kept the canvas item count climbing 52 per scene switch.
+        # clear() leaves the turtle holding a fresh empty line item, and the cursor is a
+        # canvas item of its own. Both outlive the turtle unless deleted here, which is
+        # what kept the canvas item count climbing 52 per scene switch.
         doomed = list(getattr(t, 'items', ()))          # currentLineItem + any leftover lines
+        doomed += list(getattr(t, 'stampItems', ()))    # Anything stamp() left behind
         doomed.append(getattr(t, 'drawingLineItem', None))  # The animation line, not listed in .items
         doomed.append(getattr(t, '_fillitem', None))    # An unfinished begin_fill(), if any
-        doomed.append(getattr(t.turtle, '_item', None))  # The cursor polygon
+
+        # The cursor is ONE item id for a normal shape but a LIST of ids for a compound
+        # shape, so it has to be flattened. Missing that left every compound shape
+        # (the Character Select snake heads and power icons) painted on screen forever:
+        # _delete() failed on the list, and because the turtle is unregistered below,
+        # turtle's own "collapse a hidden shape" pass never ran for it again either -
+        # with tracer(0), hideturtle() only takes effect on the next update().
+        cursor = getattr(t.turtle, '_item', None)
+        if isinstance(cursor, (list, tuple)):
+            doomed += list(cursor)
+        else:
+            doomed.append(cursor)
+
         for item in doomed:
             if item is None:
                 continue
