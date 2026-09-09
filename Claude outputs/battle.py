@@ -13,14 +13,14 @@ import random
 import turtle
 
 from config import (ARENA_2P, SPEED_2P, WALL_MARGIN, GROW_PER_FRUIT, FRUIT_SCORE,
-                    SKILL_MAX, SKILL_GAIN_2P, MAX_HP, TARGET_SCORE, ROUNDS_TO_WIN,
-                    DEATH_SCORE_PENALTY, SCORE_TRANSFER, SELF_HIT_DAMAGE, STUN_FRAMES,
+                    SKILL_MAX, SKILL_GAIN_2P, MAX_HP, TARGET_SCORE, ROUNDS_TO_WIN, MAX_ROUNDS,
+                    SCORE_TRANSFER, SELF_HIT_DAMAGE, STUN_FRAMES,
                     SELF_HIT_GRACE_EXTRA, INVULN_FRAMES, HIT_RADIUS, OBSTACLE_COUNT,
                     OBSTACLE_SIZE, OBSTACLE_SPOTS, FRUIT_COUNT_2P, FRUIT_MIN_GAP,
                     FRAME_MS, BG_COLOR, WALL_COLOR, OBSTACLE_FILL, OBSTACLE_EDGE,
                     TEXT_BRIGHT, TEXT_TAG, TEXT_DIM, TEXT_FAINT, HIGHLIGHT)
-from engine import (wn, go_to_scene, load_shape, new_pen, STATE, FONT,
-                    draw_skill_bar, fill_box)
+from engine import (wn, go_to_scene, load_shape, new_pen, STATE,
+                    draw_skill_bar, fill_box, write_at)
 from audio import sfx
 from entity import Snake, make_fruit, powers_flag, powers_effect, powers_hud_tags
 
@@ -50,9 +50,15 @@ SPAWN = {'P1': ((-250, -35), 'right'), 'P2': ((250, -35), 'left')}
 HINT = 'P1: WASD Q=Power  |  P2: Arrows O=Power  |  X = Sound  M = Menu'
 
 
-def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
-    """One round. `wins` carries the round tally between rounds ({'P1': n, 'P2': n})."""
-    from screens import menu_scene             # local import avoids a circular import
+def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, history=None):
+    """One round of a match.
+
+    `wins` carries the round tally between rounds ({'P1': n, 'P2': n}) and `history`
+    the per-round score ledger, so the final MATCH RESULT can add up a whole match
+    even though each round starts the snakes back at 0.
+    """
+    # Local import: screens.py imports this module back, inside its own function.
+    from screens import menu_scene, draw_result, scoreline
 
     wn.title('Snake Battle - Local Multiplayer (P1: WASD | P2: Arrow Keys)')
     wn.bgcolor(BG_COLOR)
@@ -123,6 +129,7 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
     result_pen = new_pen()
     game_active = {'value': True}
     round_wins = dict(wins) if wins else {'P1': 0, 'P2': 0}
+    rounds = list(history) if history else []   # One {'P1', 'P2', 'win'} per round played
     match_over = {'value': False}               # True once someone reaches ROUNDS_TO_WIN
 
     HEART_FULL = load_shape('heart_full')
@@ -151,10 +158,11 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
     def do_restart():
         if game_active['value']:                # R only works on the result screen
             return
-        # Carry the tally into the next round, unless the match is already decided -
-        # then R starts a fresh match at 0 - 0.
-        carry = None if match_over['value'] else round_wins
-        go_to_scene(game_2p_scene, p1_char, p1_power, p2_char, p2_power, carry)
+        # Carry the tally and the ledger into the next round, unless the match is
+        # already decided - then R starts a fresh match at 0 - 0.
+        done = match_over['value']
+        go_to_scene(game_2p_scene, p1_char, p1_power, p2_char, p2_power,
+                    None if done else round_wins, None if done else rounds)
 
     def fire(snake):
         def go():
@@ -204,57 +212,71 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
         snake.commit(x, y)
         return True
 
-    def punish(loser, winner=None):
-        """One knockdown: the loser drops an HP and score, some of it to the winner.
+    def punish(loser):
+        """One knockdown: HP only. Nothing here ever touches the score.
 
-        This is the whole economy of the game. Biting is PUNISHED, so the snake in
-        front wants to dangle its body in front of the other one's mouth, and the
-        snake behind has to resist taking the bait.
+        Score moves in exactly ONE place in the whole game - a head-to-head clash,
+        below. Everything else (a bite, your own body, and so the wall and boxes too)
+        costs hearts alone, so a player can never be scored down for a collision they
+        were not the aggressor in.
+
+        Returns False when the hit was absorbed (immunity frames or SHIELD), which is
+        also what stops a blocked clash from moving any score.
         """
         if loser.invuln > 0:
             return False
         if powers_flag(loser, 'invincible'):    # SHIELD
             return False
         loser.hp -= 1
-        loser.score = max(0, loser.score - DEATH_SCORE_PENALTY)
-        if winner is not None:
-            share = int(loser.score * SCORE_TRANSFER)
-            loser.score -= share
-            winner.score += share
         loser.invuln = INVULN_FRAMES
         loser.stun = STUN_FRAMES
         sfx.play('hit')
         return True
 
     def resolve_head_clash():
-        """Head to head: the LOWER score wins and takes nothing.
+        """Head to head: the LOWER score WINS the clash and is PAID for it.
+
+        The only score transfer in the game. The snake that is ahead loses a heart and
+        hands over SCORE_TRANSFER of its score; the snake behind loses nothing and
+        gains that score. Being in front is therefore dangerous, which is the point -
+        it pushes the leader away from head-on fights and towards baiting instead.
 
         Called once per frame, not once per player, or the clash resolves twice.
-        A tie costs both of them, with no transfer.
+        A level score costs both of them a heart, with no transfer either way.
         """
         if p1.hp <= 0 or p2.hp <= 0:
             return
         if p1.head.distance(p2.head) >= HIT_RADIUS:
+            return
+        # ONE clash per encounter. Without this the transfer flips who is ahead, so the
+        # next frame - heads still touching, loser stunned in place - punished the snake
+        # that had just WON the clash. Immunity frames on either side mean "still
+        # recovering", and a clash needs two snakes that are both fit to fight.
+        if p1.invuln > 0 or p2.invuln > 0:
             return
         if p1.score == p2.score:
             punish(p1)
             punish(p2)
             return
         loser, winner = (p1, p2) if p1.score > p2.score else (p2, p1)
-        punish(loser, winner)                   # Ahead on score = you lose the clash
+        if punish(loser):                       # Ahead on score = you lose the clash
+            share = int(loser.score * SCORE_TRANSFER)
+            loser.score -= share
+            winner.score += share
 
     def resolve_bite(biter, victim):
-        """Biting ANY part of the other snake punishes the BITER.
+        """Biting ANY part of the other snake costs the BITER a heart - and only that.
 
         Tail and body are treated the same on purpose. The old rule rewarded biting
         the tail, which fought against the point of the game: you want the enemy to
-        take a bite out of you.
+        take a bite out of you. No score changes hands here, whoever is ahead, so a
+        bite is a pure HP punishment.
         """
         if biter.hp <= 0 or victim.hp <= 0:
             return
         for pos in victim.segments():
             if biter.head.distance(pos) < HIT_RADIUS:
-                punish(biter, victim)
+                punish(biter)
                 return
 
     def resolve_self_collision(snake):
@@ -280,7 +302,7 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
                 snake.stun = STUN_FRAMES
                 snake.self_hit_grace = STUN_FRAMES + SELF_HIT_GRACE_EXTRA
                 if SELF_HIT_DAMAGE:
-                    punish(snake)               # No winner: nobody profits from this
+                    punish(snake)               # HP only - a fumble costs no score
                 return
 
     def resolve_fruit(snake):
@@ -304,11 +326,8 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
         return None
 
     # ===========================================
-    # SECTION 5B: HUD & RESULT SCREEN
+    # SECTION 5B: HUD & END OF ROUND
     # ===========================================
-    def scoreline():
-        return 'P1  {} - {}  P2'.format(round_wins['P1'], round_wins['P2'])
-
     def draw_hud():
         hud.clear()
         bar_pen.clear()
@@ -320,16 +339,13 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
                     icon.showturtle()
                 score_x = geo['x'] + geo['dir'] * (MAX_HP * HEART_STEP + 4)
             else:
-                hud.color(pl.color_main)
-                hud.goto(geo['x'], HEART_Y - 6)
-                hud.write('<3 ' * max(0, pl.hp), align=geo['align'],
-                          font=(FONT, 13, 'bold'))
+                write_at(hud, geo['x'], HEART_Y - 6, '<3 ' * max(0, pl.hp), 13,
+                         pl.color_main, geo['align'])
                 score_x = geo['x'] + geo['dir'] * (MAX_HP * 26)
 
-            hud.color(pl.color_main)
-            hud.goto(score_x, HEART_Y - 7)
-            hud.write('{} {} [{}] {}'.format(pl.slot, pl.char_name, pl.skill_tag, pl.score),
-                      align=geo['align'], font=(FONT, 14, 'bold'))
+            write_at(hud, score_x, HEART_Y - 7, '{} {} [{}] {}'.format(
+                pl.slot, pl.char_name, pl.skill_tag, pl.score), 14,
+                pl.color_main, geo['align'])
 
             draw_skill_bar(bar_pen, geo['bar_x'], BAR_Y, BAR_W, BAR_H,
                            pl.skill / SKILL_MAX, pl.color_main)
@@ -338,27 +354,17 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
             if pl.stun > 0:
                 tags.append('STUN')
             if tags:
-                hud.color(TEXT_TAG)
-                hud.goto(geo['bar_x'] + (BAR_W + 8 if geo['dir'] > 0 else -8), BAR_Y)
-                hud.write(' '.join(tags), align='left' if geo['dir'] > 0 else 'right',
-                          font=(FONT, 10, 'bold'))
+                write_at(hud, geo['bar_x'] + (BAR_W + 8 if geo['dir'] > 0 else -8),
+                         BAR_Y, ' '.join(tags), 10, TEXT_TAG,
+                         'left' if geo['dir'] > 0 else 'right')
 
-        hud.color(HIGHLIGHT)                    # Round tally, e.g.  1 - 0
-        hud.goto(0, 249)
-        hud.write(scoreline(), align='center', font=(FONT, 16, 'bold'))
-        hud.color(TEXT_DIM)
-        hud.goto(0, 228)
-        hud.write('FIRST TO {}  -  BEST OF {}'.format(TARGET_SCORE, ROUNDS_TO_WIN * 2 - 1),
-                  align='center', font=(FONT, 10, 'bold'))
-        hud.color(TEXT_FAINT)
-        hud.goto(0, -272)
-        hud.write(HINT, align='center', font=(FONT, 10, 'normal'))
+        write_at(hud, 0, 249, scoreline(round_wins), 16, HIGHLIGHT)       # Round tally,  1 - 0
+        write_at(hud, 0, 228, 'FIRST TO {}  -  BEST OF {}'.format(
+            TARGET_SCORE, ROUNDS_TO_WIN * 2 - 1), 10, TEXT_DIM)
+        write_at(hud, 0, -272, HINT, 10, TEXT_FAINT)
 
-    def show_result(winner):
-        game_active['value'] = False
-        if winner != 'draw':                    # Credit the round BEFORE drawing
-            round_wins[winner.slot] += 1
-        match_over['value'] = max(round_wins.values()) >= ROUNDS_TO_WIN
+    def clear_field():
+        """Take the arena off screen so a result can be drawn over it."""
         for pl in players:
             pl.hide()
         for f in fruits:
@@ -370,35 +376,27 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None):
             for icon in pool:
                 icon.hideturtle()
 
+    def show_result(winner):
+        """End of a round: bank the round, then hand off to the result screen.
+
+        The ledger records the HP each player FINISHED the round with, because the
+        match summary weights score by survival (screens.py explains the maths).
+        A knocked-out player banks hp 0, so that round scores them nothing.
+        """
+        game_active['value'] = False
+        rounds.append({'P1': p1.score, 'P2': p2.score,
+                       'hpP1': max(0, p1.hp), 'hpP2': max(0, p2.hp),
+                       'win': '-' if winner == 'draw' else winner.slot})
+        if winner != 'draw':                    # Credit the round BEFORE drawing
+            round_wins[winner.slot] += 1
+        # Rounds also run out: without the MAX_ROUNDS half, a match where every round
+        # is a draw would never reach ROUNDS_TO_WIN and never end.
+        match_over['value'] = (max(round_wins.values()) >= ROUNDS_TO_WIN
+                               or len(rounds) >= MAX_ROUNDS)
+        clear_field()
         result_pen.clear()
-        result_pen.color(TEXT_BRIGHT)
-        result_pen.goto(0, 95)
-        result_pen.write('MATCH WINNER' if match_over['value'] else 'ROUND OVER',
-                         align='center', font=(FONT, 26, 'bold'))
-        if winner == 'draw':
-            result_pen.goto(0, 50)
-            result_pen.write('DRAW!', align='center', font=(FONT, 22, 'bold'))
-        else:
-            result_pen.color(winner.color_main)
-            result_pen.goto(0, 50)
-            label = 'TAKES THE MATCH!' if match_over['value'] else 'WINS THE ROUND!'
-            result_pen.write('{} {}'.format(winner.name, label), align='center',
-                             font=(FONT, 20, 'bold'))
-
-        result_pen.color(HIGHLIGHT)              # The 1 - 0 the user asked for
-        result_pen.goto(0, -5)
-        result_pen.write(scoreline(), align='center', font=(FONT, 30, 'bold'))
-
-        result_pen.color(TEXT_BRIGHT)
-        result_pen.goto(0, -55)
-        result_pen.write('P1  score {}  hp {}     |     P2  score {}  hp {}'.format(
-            p1.score, max(0, p1.hp), p2.score, max(0, p2.hp)),
-            align='center', font=(FONT, 13, 'normal'))
-        result_pen.color(TEXT_DIM)
-        result_pen.goto(0, -100)
-        hint = ('Press R for a NEW MATCH     |     M for Menu' if match_over['value']
-                else 'Press R for the next round     |     M for Menu')
-        result_pen.write(hint, align='center', font=(FONT, 12, 'normal'))
+        draw_result(result_pen, p1, p2, round_wins, rounds,
+                    match_over['value'], winner)
         sfx.play('win')
         wn.update()
 

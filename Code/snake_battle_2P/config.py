@@ -85,14 +85,16 @@ SKILL_GAIN_2P = 25
 MAX_HP = 3
 TARGET_SCORE = 500
 ROUNDS_TO_WIN = 2                               # Rounds to take the match (best of 3)
+MAX_ROUNDS = ROUNDS_TO_WIN * 2 - 1              # Hard stop: a match of all draws would
+                                                # otherwise never reach ROUNDS_TO_WIN.
+                                                # Level on rounds here -> MVP decides,
+                                                # see screens.py match_champion()
 
-# --- Scoring on a knockdown -------------------------------------------------
-# The core loop is: eat fruit, PROTECT your score, and bait the enemy into biting
-# you - because biting costs the BITER, not the victim. So every knockdown moves
-# score from the loser to the winner.
-DEATH_SCORE_PENALTY = 50                        # Flat points lost per knockdown
-SCORE_TRANSFER = 0.5                            # Share of the loser's remaining score
-                                                # handed to the winner
+# --- The one place score changes hands --------------------------------------
+# Collisions cost HEARTS, never points - except a head-to-head clash, where the snake
+# that is AHEAD loses a heart and hands this share of its score to the snake behind.
+# That is the whole reason to protect a lead by baiting instead of charging.
+SCORE_TRANSFER = 0.5                            # 0.0 = no transfer, 1.0 = the lot
 
 SELF_HIT_DAMAGE = 1                             # HP lost for running into your own body
                                                 # (0 = stun only, the old behaviour)

@@ -47,14 +47,14 @@ Organised to the **baseline kit format** (Sections 1-5). No file exceeds 500 lin
 Code/snake_battle_2P/
 ├── main.py            26   ← entry point, run this
 │
-├── config.py         190   Section 3  every constant + character and power registries
+├── config.py         192   Section 3  every constant + character and power registries
 ├── engine.py         436   Section 1  the one Screen, sprites, scenes, drawing helpers
 ├── entity.py         256   Section 2  the Snake both modes use + the power runtime
-├── audio.py          268              non-blocking sound (silent when no files exist)
+├── audio.py          281              non-blocking sound (silent when no files exist)
 │
-├── screens.py        284              Main Menu and Character Select
+├── screens.py        411              Main Menu, Character Select, result screens
 ├── solo.py           209              1 Player mode      Sections 2, 3, 4, 5
-├── battle.py         441              2 Player Battle     Sections 2, 3, 4, 5
+├── battle.py         439              2 Player Battle     Sections 2, 3, 4, 5
 │
 ├── make_sprites.py   138              sprite generator (a tool, not runtime; needs Pillow)
 └── assets/                            sprite *.gif (+ sounds/ if you add .wav)
@@ -101,7 +101,7 @@ roster. Keyboard works too:
 | Move | Arrows | P1 `W A S D` · P2 Arrows |
 | Use power | `SPACE` | P1 `Q` (or `E`) · P2 `O` (or `P`) |
 | Sound on/off | `X` | `X` |
-| Restart | `R` (after game over) | `R` (on the Result screen = **next round**, tally carried over) |
+| Restart | `R` (after game over) | `R` (on ROUND OVER = **next round**, tally + MVP ledger carried over) |
 | Back to menu | `M` | `M` |
 
 > **One power key per player**, whatever power they picked, because each player picks
@@ -194,19 +194,58 @@ Nine events, called from these places:
 | `start` | a match begins | `screens.py` · `solo.py` · `battle.py` |
 | `score` | not used yet — reserved | – |
 
-### Step 2 — make the folder
+### Step 2 — where the files go (**two folders, your choice**)
+
+The repo already has a `sound_effect/` folder at its root (12 `.mp3` files today).
+The game searches **both** folders and takes the first hit, in this order:
 
 ```
-Code/snake_battle_2P/assets/sounds/
+BattleofSnake/
+├── sound_effect/                          ← option 2  (where your pack already lives)
+│   ├── eat.wav                                  ← the event name (beats eat_fruit.wav)
+│   ├── eat_fruit.wav                            ← convert in place, no renaming needed
+│   └── eat_fruit.mp3                            ← the original mp3 (pygame only)
+└── Code/snake_battle_2P/
+    └── assets/sounds/                     ← option 1, beats everything
+        └── eat.wav
 ```
 
-### Step 3 — drop `.wav` files in, named after the events
+| Order | The game looks for | Notes |
+|---|---|---|
+| 1 | `assets/sounds/<event>.wav` | wins over everything; the "official" spot |
+| 2 | `sound_effect/<event>.wav` | e.g. `sound_effect/eat.wav` — **easiest: just drop it in** |
+| 3 | `sound_effect/<pack name>.wav` | e.g. `sound_effect/eat_fruit.wav` — convert the mp3s in place, keep their names |
+| 4 | `sound_effect/<pack name>.mp3` | only with pygame installed · **no pygame = skipped** |
+
+**`.wav` is tried before `.mp3` in every folder**, because `.wav` plays on the standard
+library alone.
+
+The extra folders are configurable in `config.py`:
+
+```python
+EXTRA_SOUND_DIRS = ['../../sound_effect']   # relative to Code/snake_battle_2P/
+```
+
+### Step 3 — name the files after the events
 
 ```
-assets/sounds/eat.wav      assets/sounds/hit.wav      assets/sounds/bump.wav
-assets/sounds/power.wav    assets/sounds/win.wav      assets/sounds/lose.wav
-assets/sounds/select.wav   assets/sounds/start.wav
+eat.wav    hit.wav    bump.wav    power.wav
+win.wav    lose.wav   select.wav  start.wav
 ```
+
+Or keep the pack's own names (option 3 above) — the mapping already exists:
+
+| event | pack names accepted |
+|---|---|
+| `eat` | `eat_fruit` · `motion_eating` |
+| `hit` | `bomb` |
+| `bump` | `impact_wall` |
+| `power` | `increase_speed` · `skill_selection` |
+| `win` | `result_fanfare` |
+| `lose` | `bomb` |
+| `select` | `setting` · `skill_selection` |
+| `start` | `start_1` · `start_2` · `start_3` |
+| `score` | `score` (not called by the game yet) |
 
 **Partial sets are fine** — an event with no file is simply silent, never an error.
 `eat`, `hit`, `bump`, `power` and `win` are enough to make the game feel complete.
@@ -214,6 +253,24 @@ assets/sounds/select.wav   assets/sounds/start.wav
 > **Why `.wav`** — on Windows these play through `winsound`, which is in the standard
 > library, so there is nothing to install. `.mp3` **cannot** be played by `winsound`
 > or by the CLI players. Only pygame reads mp3, and pygame is strictly optional.
+>
+> Convert the whole folder at once (this writes the `.wav` files next to the `.mp3`
+> files, where the game already looks):
+>
+> ```bash
+> cd sound_effect
+> for f in *.mp3; do ffmpeg -i "$f" -c:a pcm_s16le -ac 1 -ar 22050 "${f%.mp3}.wav"; done
+> ```
+>
+> PowerShell:
+> ```powershell
+> cd sound_effect
+> Get-ChildItem *.mp3 | ForEach-Object {
+>   ffmpeg -i $_.Name -c:a pcm_s16le -ac 1 -ar 22050 ($_.BaseName + ".wav") }
+> ```
+>
+> **`-c:a pcm_s16le` is the part that matters** — without it you get 32-bit float,
+> which `winsound` refuses.
 
 ### Step 4 — run the game and read the status line
 
@@ -341,8 +398,8 @@ audio device must not take the game down.
 committed (no HP lost). PHASE passes through boxes, but **the outer wall always stops
 you**.
 
-**Own body** → **30-frame stun + 1 HP + 50 score** (the 2 segments right behind the
-head are skipped). Nobody collects the lost points — a fumble is pure loss.
+**Own body** → **30-frame stun + 1 HP** (the 2 segments right behind the head are
+skipped). **No score is lost** — a fumble costs hearts only.
 
 Three guards stop that draining you dry, and all three are needed:
 
@@ -362,21 +419,33 @@ The snake coasts out of its own coil once the stun ends, with no key press neede
 The loop is **eat fruit → protect your score → bait the other snake into biting you**,
 because a bite punishes the **biter**, not the victim. So the snake that is ahead on
 score wants to dangle its body and tail in front of the other one's mouth, and the
-snake behind has to resist the bait it is being offered.
+snake behind has to resist the bait it is being offered — resist it, meet head on
+instead, and the snake behind is *paid* for it. That is the second way to score,
+alongside fruit.
 
-| Event | Who pays | What it costs |
-|---|---|---|
-| **Your head touches the other snake's body or tail** (a bite) | **the biter** | −1 HP, −50 score, then half of what is left is handed to the victim |
-| **Head to head**, scores differ | **the HIGHER score** | −1 HP, −50 score, then half of what is left goes to the other one — **the lower score wins the clash and pays nothing** |
-| **Head to head**, scores exactly equal | **both** | −1 HP and −50 score each, no transfer |
-| **Own body** | yourself | −1 HP, −50 score, transferred to nobody |
+**The one rule to remember: score only changes hands in a head-to-head clash.** Every
+other collision costs hearts and leaves both players' scores completely alone.
+
+| Event | Result |
+|---|---|
+| **Head to head**, scores differ | the **HIGHER score** loses −1 HP and **hands over half of its own score** to the one behind · **the lower score wins: it is paid, and loses no HP** |
+| **Head to head**, scores exactly equal | both lose −1 HP · **no transfer either way** |
+| **Your head touches the other snake's body or tail** (a bite) | the **biter loses −1 HP and nothing else** — no score, **not even when the biter is the one behind on score** · the victim loses nothing and gains nothing |
+| **Own body** | −1 HP only, no score change |
+| **Outer wall / a box** | a 30-frame stun only, no HP and no score |
 
 Body and tail are treated **identically**, on purpose: the old rule rewarded biting the
-tail, which worked against the whole point of the game. The head-to-head clash is
-evaluated **once per frame**, not once per player, or it would resolve twice.
+tail, which worked against the whole point of the game.
+
+> **One collision, one resolution.** After the transfer, who is "ahead" flips
+> immediately. Without a lock the next frame — heads still touching, the loser stunned
+> in place — would punish the snake that just *won* the clash. So the game skips the
+> head-to-head check while either snake still has immunity frames: both have to be
+> fit again before it counts as a new clash.
 
 A 60-frame immunity follows any damage (the sprite blinks) so one touch cannot
-chain-hit. SHIELD blocks both the HP and the score loss.
+chain-hit. SHIELD blocks the HP loss — and because the transfer is gated on the HP
+loss landing, **SHIELD protects the score as a side effect.**
 
 ### Winning a round, and winning the match
 
@@ -384,16 +453,104 @@ chain-hit. SHIELD blocks both the HP and the score loss.
 higher score wins; equal → DRAW.
 
 The **round tally** is on screen the whole time as `P1  1 - 0  P2`, both on the in-game
-HUD and on the result screen. First to `ROUNDS_TO_WIN` (default 2, i.e. best of 3) gets
-**MATCH WINNER**.
+HUD and on the result screen. First to `ROUNDS_TO_WIN` (default 2, i.e. best of 3) takes
+the match.
+
+**Score resets every round** (both snakes start a round at 0), but the game keeps a
+record of each round so it can add up the whole match at the end.
+
+### MVP = score x HP survived
+
+At the end of every round the game records two things per player: **the score they
+made that round** and **the HP they had left when it ended**. Then it multiplies them:
+
+```
+round MVP = round score x HP left
+match MVP = every round added up
+```
+
+The point of it: **a round you were knocked out of (HP = 0) is worth 0 MVP** however
+many points you banked, because `score x 0 = 0`. Bank 500 and then die and you carry
+away nothing. Surviving therefore weighs exactly as much as scoring.
+
+| Round | Score | HP left | MVP |
+|---|---|---|---|
+| R1 | 400 | 3 | **1200** |
+| R2 | 150 | 0 (knocked out) | **0** |
+| R3 | 300 | 0 (knocked out) | **0** |
+| Total | 850 | | **1200** |
+
+### When MVP counts — it breaks a tie
+
+**How the match is decided, in order:**
+
+1. **Rounds won** — more rounds takes it (e.g. 2-1). MVP is ignored entirely here.
+2. **Rounds level** → the higher **match MVP** wins.
+3. **MVP level too** → `A DRAWN MATCH`.
+
+Rounds can end level once `MAX_ROUNDS` (= `ROUNDS_TO_WIN * 2 - 1` = 3) have been
+played and nobody reached 2: one round each plus a draw (1 - 1), or three draws (0 - 0).
+
+> `MAX_ROUNDS` also closes a hole: without that ceiling a match where every round is
+> drawn would never reach `ROUNDS_TO_WIN` and would loop forever.
+
+### Two result screens
+
+**1. ROUND OVER** — a round finished, the match is still open
+
+```
+              ROUND 2 OVER
+          P2 EMBER WINS THE ROUND
+
+              P1  1 - 1  P2
+
+           score x hp left = MVP
+     P1  150 x 0 = 0      480 x 2 = 960  P2
+        MVP so far    P1 1200    |    P2 960
+          first to 2 rounds takes the match
+       Press R for round 3     |     M for Menu
+```
+
+(`MVP so far` appears from round 2 on; in round 1 it would only repeat the line above.)
+
+**2. MATCH RESULT** — the match is decided, here is the whole thing
+
+```
+                    MATCH RESULT
+                P1 AQUA WINS THE MATCH
+
+                   P1  1 - 1  P2
+
+  ROUND   P1  score x hp = MVP   P2  score x hp = MVP   WON BY
+  R1              400 x 3 = 1200          200 x 0 = 0     AQUA
+  R2                150 x 0 = 0        480 x 2 = 960    EMBER
+  R3                300 x 0 = 0          300 x 0 = 0      DRAW
+  ---------------------------------------------------------------
+  MVP TOTAL              1200                   960    MVP: P1
+
+           raw points   P1 850   |   P2 980
+       rounds level 1 - 1  ->  MVP decides the match
+          Press R for a NEW MATCH  |  M for Menu
+```
+
+Everything in one screen: **who won the match** · **score x HP for every round, with
+the multiplication shown** · **match MVP** · **raw points** · and a bottom line saying
+what actually decided it.
+
+> The example above is MVP doing its job: rounds are level at 1-1 and P2 is ahead on
+> raw points (980 to 850), but P2 only survived one round, so their MVP is 960 while
+> P1 survived the round they scored heavily in and finishes on 1200 — **P1 wins.**
+> That is why this rule fits the core game: scoring well is not enough, you have to
+> still be standing.
 
 | Pressing R | Does |
 |---|---|
-| on the result screen, match still open | plays the next round, **tally carried over** |
-| on the result screen, match decided | starts a fresh match at `0 - 0` |
+| on ROUND OVER | plays the next round, **tally and MVP ledger carried over** |
+| on MATCH RESULT | starts a fresh match at `0 - 0`, ledger cleared |
 | during play | nothing (so a stray press cannot wipe a round) |
 
-A DRAW credits neither player; the tally stays where it was.
+`M` back to the menu abandons the match; coming back starts a new one. A DRAW credits
+neither player but is still recorded in the ledger (`WON BY` = `DRAW`).
 
 ---
 
@@ -412,9 +569,10 @@ A DRAW credits neither player; the tally stays where it was.
 **The knobs people usually want**
 
 ```python
-DEATH_SCORE_PENALTY = 50    # score lost on every knockdown
-SCORE_TRANSFER      = 0.5   # share of the loser's remaining score handed to the winner
+SCORE_TRANSFER      = 0.5   # share transferred in a head clash (0 = none, 1.0 = all)
+                            # the only place score changes hands in the game
 ROUNDS_TO_WIN       = 2     # rounds needed to take the match (2 = best of 3)
+MAX_ROUNDS          = ROUNDS_TO_WIN * 2 - 1   # round ceiling, derived - leave it
 TARGET_SCORE        = 500   # score that wins a round outright
 MAX_HP              = 3
 SELF_HIT_DAMAGE     = 1     # HP lost for hitting your own body (0 = stun only)
@@ -426,9 +584,12 @@ SLOT_COLOR          = {'P1': 'mediumseagreen', 'P2': 'steelblue'}
 
 | You want | Change |
 |---|---|
-| biting to hurt more | raise `DEATH_SCORE_PENALTY`, or raise `SCORE_TRANSFER` (1.0 = the whole remaining score) |
-| points lost but never transferred | `SCORE_TRANSFER = 0.0` |
-| best of 5 | `ROUNDS_TO_WIN = 3` |
+| a head clash to hurt more | raise `SCORE_TRANSFER` (1.0 = the whole score) |
+| score never to move at all | `SCORE_TRANSFER = 0.0` (HP loss only) |
+| biting to cost score too | subtract from the biter after `punish(biter)` in `resolve_bite()` |
+| best of 5 | `ROUNDS_TO_WIN = 3` (`MAX_ROUNDS` follows to 5) |
+| MVP to ignore HP (raw points again) | make `mvp_total()` in `screens.py` `sum(r[slot] for r in rounds)` |
+| MVP to decide every match, not just ties | drop the rounds test from `match_champion()` and compare MVP only |
 | shorter rounds | lower `TARGET_SCORE`, or lower `MAX_HP` |
 
 Constants are no longer duplicated across the mode files — change `config.py` once and
