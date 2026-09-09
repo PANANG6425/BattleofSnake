@@ -59,16 +59,41 @@ STATE = {'epoch': 0}                            # Changes on every scene switch;
 def unbind_all_keys():
     for k in ALL_KEYS:
         wn.onkeypress(None, k)
+    wn.onscreenclick(None)                      # Menu buttons hit-test screen clicks; drop that too
 
-def clear_all_turtles():                        # Hide and wipe every turtle ever created (any past scene)
+def clear_all_turtles():                        # Destroy every turtle from the previous scene
+    """Every scene builds its own turtles. Hiding them is not enough: a hidden turtle
+    stays in screen._turtles forever and keeps its canvas item, so each scene switch
+    used to leak ~26 turtles and ~78 canvas items - the game got slower the longer you
+    played. Wipe the drawings, drop the canvas item, then unregister the turtle."""
+    registry = getattr(wn, '_turtles', None)    # The Screen's list of live turtles
     for t in list(turtle.turtles()):
         try:
-            t.clear()
-            t.hideturtle()
-            t.penup()
-            t.onclick(None)
+            t.onclick(None)                     # Drop click handlers before the item goes away
+            t.clear()                           # Remove its lines and stamps
+            t.hideturtle()                      # Remove the cursor graphic
+            t.penup()                           # Never draw on a later move
         except Exception:
             pass
+        # clear() leaves the turtle holding a fresh empty line item, and the cursor
+        # polygon is a canvas item of its own. Both outlive the turtle unless deleted
+        # here, which is what kept the canvas item count climbing 52 per scene switch.
+        doomed = list(getattr(t, 'items', ()))          # currentLineItem + any leftover lines
+        doomed.append(getattr(t, 'drawingLineItem', None))  # The animation line, not listed in .items
+        doomed.append(getattr(t, '_fillitem', None))    # An unfinished begin_fill(), if any
+        doomed.append(getattr(t.turtle, '_item', None))  # The cursor polygon
+        for item in doomed:
+            if item is None:
+                continue
+            try:
+                wn._delete(item)                # Private API, so guarded: worst case we just leak as before
+            except Exception:
+                pass
+        if registry is not None:                # Unregister so turtles() stops growing
+            try:
+                registry.remove(t)
+            except ValueError:
+                pass
 
 def go_to_scene(builder, *args, **kwargs):      # Central entry point for every scene transition
     STATE['epoch'] += 1                         # Any running loop from the old scene sees this and stops

@@ -5,7 +5,10 @@ starts. 1P mode shows one card (P1 only); 2P mode shows both.
 
 import turtle
 from scene_manager import wn, go_to_scene
-from ui_helpers import rounded_card, header_strip, draw_label, draw_mini_snake
+from ui_helpers import (rounded_card, header_strip, draw_label, draw_mini_snake,
+                        shape_turtle, inside_rect)
+
+HOTSPOT = 56                                    # Clickable square around each power icon
 
 def character_select_scene(epoch, mode):
     from menu import menu_scene                 # local imports avoid circular imports at load time
@@ -18,6 +21,7 @@ def character_select_scene(epoch, mode):
     players = ['P1'] if mode == '1P' else ['P1', 'P2']
     selection = {p: None for p in players}
     box_turtles = {}
+    hotspots = []                               # (player, power, cx, cy) for click hit-testing
 
     def make_icon_box(player, power, cx, cy, size=44):
         border = turtle.Turtle()
@@ -72,23 +76,19 @@ def character_select_scene(epoch, mode):
         draw_mini_snake(cx - 10, CARD_Y + 90, head_shapes[player], body_colors[player])
         draw_label(cx, CARD_Y - 30, 'Choose your power', 11, '#8a93a3')
 
+        # Icons are drawn, but the CLICK is handled by the screen-level hit test below.
+        # turtle's onclick() binds to turtle.turtle._item, which is a LIST for a compound
+        # shape: tag_bind then silently matches nothing for any shape with more than one
+        # component. stealth_icon has three, so STEALTH could never be selected at all.
         make_icon_box(player, 'SPEED', cx - 45, CARD_Y - 90)
-        icon1 = turtle.Turtle()
-        icon1.shape('speed_icon')
-        icon1.shapesize(1.4, 1.4)
-        icon1.penup()
-        icon1.goto(cx - 45, CARD_Y - 90)
-        icon1.onclick(lambda x, y, pl=player: select_power(pl, 'SPEED'))
+        shape_turtle('speed_icon', cx - 45, CARD_Y - 90, size=1.4)
         draw_label(cx - 45, CARD_Y - 118, 'SPEED', 9, '#c7ccd4')
+        hotspots.append((player, 'SPEED', cx - 45, CARD_Y - 90))
 
         make_icon_box(player, 'STEALTH', cx + 45, CARD_Y - 90)
-        icon2 = turtle.Turtle()
-        icon2.shape('stealth_icon')
-        icon2.shapesize(1.4, 1.4)
-        icon2.penup()
-        icon2.goto(cx + 45, CARD_Y - 90)
-        icon2.onclick(lambda x, y, pl=player: select_power(pl, 'STEALTH'))
+        shape_turtle('stealth_icon', cx + 45, CARD_Y - 90, size=1.4)
         draw_label(cx + 45, CARD_Y - 118, 'STEALTH', 9, '#c7ccd4')
+        hotspots.append((player, 'STEALTH', cx + 45, CARD_Y - 90))
 
     for p in players:
         build_card(p)
@@ -107,6 +107,14 @@ def character_select_scene(epoch, mode):
 
     def back_to_menu():
         go_to_scene(menu_scene)
+
+    def on_click(x, y):
+        for player, power, cx, cy in hotspots:
+            if inside_rect(x, y, cx, cy, HOTSPOT, HOTSPOT):
+                select_power(player, power)
+                return
+
+    wn.onscreenclick(on_click)
 
     wn.listen()
     wn.onkeypress(try_start, 'Return')

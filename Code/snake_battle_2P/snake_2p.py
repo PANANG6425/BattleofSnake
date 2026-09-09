@@ -252,13 +252,17 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
     players = [p1, p2]
 
     # --- Fruits ---
-    def random_free_spot():
+    def random_free_spot(skip=None):
         for _ in range(200):
             x = random.randint(ARENA_L + 30, ARENA_R - 30)
             y = random.randint(ARENA_B + 30, ARENA_T - 30)
             if inside_obstacle(x, y, pad=20):
                 continue
             if any(pl.head.distance(x, y) < 60 for pl in players):
+                continue
+            # Keep fruits apart, otherwise two can land on the same spot and one
+            # touch scores both of them at once.
+            if any(f is not skip and f.distance(x, y) < 40 for f in fruits):
                 continue
             return x, y
         return 0, 0
@@ -347,7 +351,8 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
                 snake.score += FRUIT_SCORE
                 snake.length += GROW_PER_FRUIT
                 snake.skill = min(SKILL_MAX, snake.skill + SKILL_GAIN)
-                f.goto(random_free_spot())
+                f.goto(random_free_spot(skip=f))
+                return                          # One fruit per frame, per player
 
     # --- HUD ---
     hud = turtle.Turtle()
@@ -477,6 +482,11 @@ def game_2p_scene(epoch, p1_skill, p2_skill):
         for f in fruits:
             f.hideturtle()
         obstacle_pen.clear()
+        hud.clear()                             # Was missing: the HUD text stayed under the result
+        bar_pen.clear()                         # Was missing: the skill bars stayed on screen
+        for pool in heart_icons.values():       # Was missing: the hearts stayed on screen
+            for icon in pool:
+                icon.hideturtle()
 
         result_pen.clear()
         result_pen.color('white')

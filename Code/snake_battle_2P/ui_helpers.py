@@ -60,6 +60,55 @@ def draw_label(x, y, text_, size=14, color_='white'):
     t.write(text_, align='center', font=('Courier', size, 'bold'))
     return t
 
+def shape_turtle(name, x, y, size=None):
+    """Create a turtle that DISPLAYS a compound shape, at the right orientation.
+
+    turtle rotates a shape by (heading - 90), because its built-in shapes are authored
+    nose-up. Every compound shape in this file is authored in screen coordinates
+    instead (+x = right, +y = up), so at the default heading of 0 they all came out
+    rotated 90 degrees clockwise: the 300x80 menu buttons rendered 84x304 and the mini
+    snake head pointed down. Heading 90 cancels the rotation out.
+    """
+    t = turtle.Turtle()
+    t.penup()                                   # penup BEFORE goto, or the move draws a line
+    t.setheading(90)
+    t.shape(name)
+    if size is not None:
+        t.shapesize(size, size)
+    t.goto(x, y)
+    return t
+
+def filled_rect(cx, cy, w, h, fill_color, border_color, border_w=3):
+    """Plain filled rectangle drawn with a pen, centered on (cx, cy).
+
+    Use this instead of a shape turtle for anything that needs text on top of it:
+    turtle redraws a turtle's cursor with tag_raise every frame, so a shape turtle
+    always floats above pen drawings and write() text no matter the creation order.
+    A pen drawing stays where it is put.
+    """
+    t = turtle.Turtle()
+    t.hideturtle()
+    t.penup()
+    t.speed(0)
+    t.color(border_color, fill_color)
+    t.pensize(border_w)
+    t.goto(cx - w / 2, cy - h / 2)
+    t.setheading(0)
+    t.pendown()
+    t.begin_fill()
+    for _ in range(2):
+        t.forward(w)
+        t.left(90)
+        t.forward(h)
+        t.left(90)
+    t.end_fill()
+    t.penup()
+    return t
+
+def inside_rect(x, y, cx, cy, w, h):
+    """Point-in-rectangle test, for hit-testing screen clicks."""
+    return abs(x - cx) <= w / 2 and abs(y - cy) <= h / 2
+
 def circle_points(radius, segments=10):
     return tuple(
         (radius * math.cos(2 * math.pi * i / segments),
@@ -82,11 +131,7 @@ def make_head_shape(skin_color, band_color1, band_color2):
     return head
 
 def draw_mini_snake(cx, cy, head_shape, body_colors):
-    head = turtle.Turtle()
-    head.shape(head_shape)
-    head.shapesize(2.4, 2.4)
-    head.penup()
-    head.goto(cx, cy)
+    shape_turtle(head_shape, cx, cy, size=2.4)  # heading 90 so the head faces right, not down
     offsets = [(-24, -8), (-42, -22), (-52, -40), (-52, -60)]
     for (dx, dy), color_ in zip(offsets, body_colors):
         seg = turtle.Turtle()

@@ -226,6 +226,9 @@ def game_1p_scene(epoch, skill):
 
     def game_over():
         state['active'] = False
+        head.hideturtle()                       # Was missing: the snake stayed under the text
+        stamper.clearstamps()                   # Was missing: the body stayed under the text
+        fruit.hideturtle()                      # Was missing: the fruit stayed under the text
         result_pen.clear()
         result_pen.color('white')
         result_pen.goto(0, 30)

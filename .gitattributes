@@ -1,0 +1,21 @@
+# Normalize line endings: LF in the repo, native in the working tree
+* text=auto
+
+# Explicit text types
+*.py    text
+*.md    text
+*.txt   text
+*.json  text
+
+# Binary - never touch these
+*.png   binary
+*.gif   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.wav   binary
+*.mp3   binary
+*.ogg   binary
+*.ttf   binary
+*.otf   binary
+*.pdf   binary
