@@ -27,7 +27,8 @@ import tkinter.font as tkfont
 import turtle
 
 from config import (TITLE, BG_COLOR, WIN_W, WIN_H, ASSET_DIR as _ASSET_SUBDIR,
-                    USE_SPRITES, FONT_CANDIDATES, WINDOW_ICON, BAR_FRAME)
+                    USE_SPRITES, FONT_CANDIDATES, WINDOW_ICON, BAR_FRAME,
+                    BUTTON_FILL, TEXT_BRIGHT)
 
 # ===========================================
 # SECTION 1: SCREEN SETUP
@@ -390,6 +391,65 @@ def shape_turtle(name, x, y, size=None):
         t.shapesize(size, size)
     t.goto(x, y)
     return t
+
+
+def icon_shape(name):
+    """assets/<name>.gif if it exists, otherwise the drawn shape registered as `name`.
+
+    Section 1E below registers a drawn icon under each name config.POWERS asks for.
+    Dropping <name>.gif into assets/ therefore swaps in real art with no code or
+    config change, and deleting the file puts the drawn icon straight back.
+
+    Note the sizes are NOT interchangeable: shapesize() is ignored on an image shape,
+    so a .gif icon appears at its own pixel size while the drawn one still scales.
+    That is why import_assets.py writes the power icons at exactly one size.
+    """
+    return load_shape(name) or name
+
+
+class ImageButton:
+    """A clickable button - art from assets/<name>.gif, or a drawn box if it is missing.
+
+    One object because a button is two things that have to agree: something visible
+    and a rectangle to hit-test. turtle will not link them for you -
+
+      * onclick() binds nothing at all on a shape with 2+ components, and an image
+        shape is not clickable in a way that survives a scene rebuild, so clicks are
+        hit-tested against `hit()` from wn.onscreenclick like every other button here
+      * a shape turtle is raised above pen drawings every frame, so the fallback box
+        is pen-drawn with its label on top, and the image variant has its label baked
+        into the art instead
+    """
+
+    def __init__(self, name, cx, cy, w, h, label=None, color=TEXT_BRIGHT, fill=None):
+        self.cx, self.cy, self.w, self.h = cx, cy, w, h
+        sprite = load_shape(name)
+        self.turtle = shape_turtle(sprite, cx, cy) if sprite else None
+        if self.turtle is None:                 # No art: draw the button instead
+            filled_rect(cx, cy, w, h, fill or BUTTON_FILL, color, 3)
+            if label:
+                draw_label(cx, cy - 7, label, 14, color)
+
+    def hit(self, x, y):
+        return inside_rect(x, y, self.cx, self.cy, self.w, self.h)
+
+    def hide(self):
+        if self.turtle is not None:
+            self.turtle.hideturtle()
+
+
+def click_router(*buttons_and_actions):
+    """Turn (button, action) pairs into one wn.onscreenclick handler.
+
+    Every screen needs the same loop, and getting it wrong means a dead button, so
+    it lives here once.
+    """
+    def on_click(x, y):
+        for button, action in buttons_and_actions:
+            if button.hit(x, y):
+                action()
+                return
+    return on_click
 
 
 # ===========================================

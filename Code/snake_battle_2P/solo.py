@@ -18,9 +18,11 @@ from config import (character, ARENA_1P, SPEED_1P, WALL_MARGIN, GROW_PER_FRUIT,
                     FRUIT_SCORE, SKILL_MAX, SKILL_GAIN_1P, FRAME_MS, BG_COLOR,
                     WALL_COLOR, TEXT_BRIGHT, TEXT_MUTED, TEXT_FAINT, TEXT_DIM,
                     HIGHLIGHT)
-from engine import wn, go_to_scene, new_pen, STATE, FONT, draw_skill_bar
+from engine import (wn, go_to_scene, new_pen, STATE, FONT, draw_skill_bar,
+                    ImageButton, click_router)
 from audio import sfx
-from entity import Snake, make_fruit, powers_flag, powers_effect, powers_hud_tags
+from entity import (Snake, make_fruit, reroll_fruit, powers_flag, powers_effect,
+                    powers_hud_tags)
 
 # ===========================================
 # SECTION 3: PARAMETERS & PHYSICS
@@ -158,6 +160,13 @@ def game_1p_scene(epoch, char_key, power_key):
         result_pen.color(TEXT_DIM)
         result_pen.goto(0, -50)
         result_pen.write('R = Retry     M = Menu', align='center', font=(FONT, 12, 'normal'))
+
+        # The keys above still work; these are the same two actions as buttons.
+        again = ImageButton('btn_playgame', -90, -170, 150, 86,
+                            label='RETRY', color=HIGHLIGHT)
+        back = ImageButton('btn_menu', 90, -170, 110, 63, label='MENU', color=TEXT_DIM)
+        wn.onscreenclick(click_router((again, retry), (back, to_menu)))
+
         sfx.play('lose')
         wn.update()
 
@@ -199,6 +208,7 @@ def game_1p_scene(epoch, char_key, power_key):
                 gain = int(FRUIT_SCORE * powers_effect(me, 'score_mult', 1.0))
                 me.gain_fruit(gain, GROW_PER_FRUIT, SKILL_GAIN_1P)
                 fruit.goto(random_free_spot())
+                reroll_fruit(fruit)             # New spot, new fruit - looks only
                 sfx.play('eat')
 
         me.render()                             # 5. draw

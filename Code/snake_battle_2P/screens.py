@@ -20,13 +20,20 @@ from config import (CHARACTERS, CHAR_DEFAULTS, POWERS, POWER_DEFAULTS,
                     SURVIVE_BONUS)
 from engine import (wn, go_to_scene, new_pen, draw_label, filled_rect, rounded_card,
                     header_strip, inside_rect, shape_turtle, stroke_box, fill_box,
-                    write_at, make_head_shape)
+                    write_at, make_head_shape, icon_shape, load_shape, ImageButton)
 from audio import sfx
 
 # ===========================================
 # SECTION 3: LAYOUT PARAMETERS
 # ===========================================
-BTN_W, BTN_H = 300, 80                          # Main menu buttons
+BTN_W, BTN_H = 300, 80                          # Main menu mode buttons (pen-drawn:
+                                                # "1 PLAYER" / "2 PLAYER BATTLE" is
+                                                # not text any of the art carries)
+# The two sizes import_assets.py writes the button art at. turtle cannot scale an
+# image shape, so these numbers must match that file exactly or the hit box and the
+# picture stop lining up.
+BIG_BTN = (150, 86)                             # btn_start, btn_playgame
+SMALL_BTN = (110, 63)                           # btn_menu, btn_setting, btn_exit
 BTN_1P_Y, BTN_2P_Y = 60, -60
 
 # Character Select, top to bottom inside a panel. Spaced so nothing overlaps:
@@ -57,6 +64,14 @@ for _ch in CHARACTERS:
     wn.register_shape(_name, make_head_shape(_ch['palette'][0], _ch['palette'][1],
                                              _ch['palette'][2]))
     HEAD_SHAPE[_ch['key']] = _name
+
+# Hand-drawn card art, one optional file per character: assets/<key>_portrait.gif,
+# 80x80, written by import_assets.py. A character with a portrait shows it instead of
+# the drawn head, and the drawn head is what every other character keeps - so the two
+# can be mixed and no character ever ends up with an empty card.
+PORTRAIT = {c['key']: load_shape(c['key'] + '_portrait') for c in CHARACTERS}
+PORTRAIT_CY = 82                                # Centre of an 80px portrait inside the
+                                                # card (9..127), clear of the name line
 
 
 # ===========================================
@@ -162,21 +177,24 @@ def character_select_scene(epoch, mode):
         draw_label(cx, POWER_Y + POWER_BOX / 2 + 16, 'POWER', 9, TEXT_MUTED)
 
     for slot in slots:
+        # One turtle per card that swaps between a .gif portrait and the drawn head.
+        # shapesize is set once for the drawn shape and simply ignored while an image
+        # shape is on, which is what lets a single turtle serve both.
         portrait[slot] = shape_turtle(HEAD_SHAPE[CHARACTERS[0]['key']],
                                       panel_cx[slot] + 22, CARD_CY + 22, size=3.0)
         for i, pw in enumerate(POWERS):
-            shape_turtle(pw['icon'], *power_pos(slot, i), size=1.1)
+            shape_turtle(icon_shape(pw['icon']), *power_pos(slot, i), size=1.1)
 
     title = 'CHARACTER SELECT - 1 PLAYER' if mode == '1P' else 'CHARACTER SELECT - 2 PLAYERS'
     draw_label(0, 272, title, 18, TEXT_BRIGHT)
-    draw_label(0, -212, 'PRESS ENTER TO START', 14, HIGHLIGHT)
+    # One line, not two: the panels now reach y=-188 and the START button starts at
+    # y=-213, so there is only room for a single row of hint text between them.
     if mode == '1P':
-        draw_label(0, -244, 'Click the arrows, or  A / D = character   W / S = power',
+        draw_label(0, -206, 'Click the arrows, or  A / D = character   W / S = power',
                    9, TEXT_FAINT)
     else:
-        draw_label(0, -240, 'P1  A / D = character   W / S = power', 9, TEXT_FAINT)
-        draw_label(0, -258, 'P2  Left / Right = character   Up / Down = power', 9, TEXT_FAINT)
-    draw_label(0, -284, 'ESC = back to menu', 8, TEXT_FAINT)
+        draw_label(0, -206, 'P1  A / D  +  W / S        P2  Left / Right  +  Up / Down',
+                   9, TEXT_FAINT)
 
     def redraw():
         """Repaint only what a pick changes: portrait, name, dots, power highlight."""
@@ -187,10 +205,16 @@ def character_select_scene(epoch, mode):
             ch = character(chosen[slot]['char'])
             pw = power(chosen[slot]['power'])
 
-            for i, (dx, dy) in enumerate(((-46, -14), (-72, -30), (-92, -50))):
-                fill_box(art_pen, cx + 22 + dx, CARD_CY + 22 + dy,
-                         20 - i * 2, 20 - i * 2, ch['main'])
-            portrait[slot].shape(HEAD_SHAPE[ch['key']])
+            art = PORTRAIT.get(ch['key'])
+            if art:                             # Hand-drawn card art fills the card
+                portrait[slot].goto(cx, PORTRAIT_CY)
+                portrait[slot].shape(art)
+            else:                               # Drawn head plus a tapering tail
+                portrait[slot].goto(cx + 22, CARD_CY + 22)
+                portrait[slot].shape(HEAD_SHAPE[ch['key']])
+                for i, (dx, dy) in enumerate(((-46, -14), (-72, -30), (-92, -50))):
+                    fill_box(art_pen, cx + 22 + dx, CARD_CY + 22 + dy,
+                             20 - i * 2, 20 - i * 2, ch['main'])
             write_at(text_pen, cx, CARD_CY - CARD_H / 2 + 12, ch['name'], 15, ch['main'])
 
             order = [c['key'] for c in CHARACTERS]
@@ -243,7 +267,18 @@ def character_select_scene(epoch, mode):
             sfx.play('select')
             redraw()
 
+    start_btn = ImageButton('btn_start', 0, -256, *BIG_BTN,
+                            label='START', color=HIGHLIGHT)
+    back_btn = ImageButton('btn_menu', -300, -256, *SMALL_BTN,
+                           label='MENU', color=TEXT_MUTED)
+
     def on_click(x, y):
+        if start_btn.hit(x, y):
+            try_start()
+            return
+        if back_btn.hit(x, y):
+            back_to_menu()
+            return
         for slot in slots:
             for direction in (-1, 1):
                 if inside_rect(x, y, *arrow_pos(slot, direction), ARROW_HIT, ARROW_HIT):
@@ -387,9 +422,11 @@ def _draw_match(pen, p1, p2, round_wins, rounds):
 
     col_r, col_1, col_2, col_w = -350, -60, 215, 370        # Ledger column edges
     y = 40
+    # Short headers on purpose: spelled out, the P1 column ran back past x=-380 and
+    # printed on top of ROUND. The formula is written under the table anyway.
     write_at(pen, col_r, y, 'ROUND', 13, TEXT_MUTED, 'left')
-    write_at(pen, col_1, y, 'P1   score x hp + bonus = MVP', 13, p1.color_main, 'right')
-    write_at(pen, col_2, y, 'P2   score x hp + bonus = MVP', 13, p2.color_main, 'right')
+    write_at(pen, col_1, y, 'P1  MVP', 13, p1.color_main, 'right')
+    write_at(pen, col_2, y, 'P2  MVP', 13, p2.color_main, 'right')
     write_at(pen, col_w, y, 'WON BY', 13, TEXT_MUTED, 'right')
     for i, r in enumerate(rounds, 1):
         y -= 27

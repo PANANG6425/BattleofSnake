@@ -8,9 +8,11 @@ in config.POWERS needs no new attribute here. The game asks about effects by KIN
 (powers_flag / powers_effect), never by power name.
 """
 
+import random
 import turtle
 
-from config import (character, power, SEG_SPACING, START_LENGTH, SKILL_MAX)
+from config import (character, power, SEG_SPACING, START_LENGTH, SKILL_MAX,
+                    FRUIT_VARIANTS)
 from engine import load_shape, new_pen
 
 DIRECTIONS = {'up': (0, 1), 'down': (0, -1), 'left': (-1, 0), 'right': (1, 0)}
@@ -249,15 +251,45 @@ class Snake:
 # ===========================================
 # SECTION 2C: SHARED ENTITY BUILDERS
 # ===========================================
+_fruit_shapes = None                            # Resolved once, on the first fruit
+
+
+def fruit_shapes():
+    """Every fruit skin that actually loaded, best available first.
+
+    Three tiers, so the game looks its best with the imported art and still runs
+    with none of it: the config.FRUIT_VARIANTS drawings, then the single generated
+    assets/fruit.gif, then nothing at all (make_fruit draws a red circle).
+    """
+    global _fruit_shapes
+    if _fruit_shapes is None:
+        _fruit_shapes = [s for s in (load_shape(n) for n in FRUIT_VARIANTS) if s]
+        if not _fruit_shapes:
+            plain = load_shape('fruit')
+            _fruit_shapes = [plain] if plain else []
+    return _fruit_shapes
+
+
 def make_fruit():
-    """One fruit turtle, sprite if available else a red circle."""
-    sprite = load_shape('fruit')
+    """One fruit turtle: a random fruit skin if any loaded, else a red circle."""
+    shapes = fruit_shapes()
     f = turtle.Turtle()
     f.penup()
-    if sprite:
-        f.shape(sprite)
+    if shapes:
+        f.shape(random.choice(shapes))
     else:
         f.shape('circle')
         f.color('red')
         f.shapesize(0.7, 0.7)
     return f
+
+
+def reroll_fruit(f):
+    """Give a fruit a new random skin when it respawns. Cosmetic only.
+
+    Called right after the fruit is moved. A no-op with one skin or none, so both
+    game modes can call it unconditionally.
+    """
+    shapes = fruit_shapes()
+    if len(shapes) > 1:
+        f.shape(random.choice(shapes))

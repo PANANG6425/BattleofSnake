@@ -67,6 +67,14 @@ GROW_PER_FRUIT = 1
 FRUIT_SCORE = 50
 SKILL_MAX = 100
 
+# Fruit skins. Purely cosmetic - every one is worth FRUIT_SCORE - and each respawn
+# picks a fresh one at random. Names are assets/<name>.gif, written by
+# import_assets.py from the drawings in ../../Asset/. Whichever files are missing
+# are simply not offered; with none of them present the game falls back to
+# assets/fruit.gif, and without that to a red circle.
+FRUIT_VARIANTS = ['fruit_apple', 'fruit_banana', 'fruit_grape',
+                  'fruit_guava', 'fruit_pineapple']
+
 # ===========================================
 # SECTION 3C: 1P MODE
 # ===========================================
@@ -135,17 +143,24 @@ SOUND_DEBUG = False                             # True prints every playback fai
 # `palette` is (main, dark outline, light highlight, ghost main, ghost outline) and is
 # used only to GENERATE sprites; `main` / `dim` are what the game draws with when a
 # sprite file is missing. To add one: append an entry, run make_sprites.py.
+# The roster is the two hand-drawn snakes, each in two colourways. Every one has a
+# portrait at assets/<key>_portrait.gif; import_assets.PORTRAIT_ART decides which
+# drawing and which hue rotation produces each, and `main` here is that costume's
+# dominant colour so the arena sprite matches the card the player picked.
+# Character Select falls back to the drawn head if a portrait file is missing, so
+# nothing below depends on the art existing.
 CHARACTERS = [
-    {'key': 'p1', 'name': 'AQUA',  'main': '#22e0e0', 'dim': '#0d3a3a',
-     'palette': ('#22e0e0', '#0b6a6a', '#b6ffff', '#0e3d3d', '#082424')},
-    {'key': 'p2', 'name': 'EMBER', 'main': '#ffa22a', 'dim': '#3a260d',
-     'palette': ('#ffa22a', '#8a4a00', '#ffe0a8', '#4a2f0c', '#241705')},
-    {'key': 'p3', 'name': 'VENOM', 'main': '#5ce65c', 'dim': '#123d12',
-     'palette': ('#5ce65c', '#186b18', '#c9ffc9', '#123d12', '#0a240a')},
-    {'key': 'p4', 'name': 'ROYAL', 'main': '#c86ef0', 'dim': '#341044',
-     'palette': ('#c86ef0', '#5e1f7a', '#eecbff', '#341044', '#1d0926')},
+    {'key': 'p1', 'name': 'SIAM',   'main': '#e03131', 'dim': '#3f1010',   # Thai, red
+     'palette': ('#e03131', '#7a1414', '#ffd0c0', '#4a1616', '#280b0b')},
+    {'key': 'p2', 'name': 'SAKURA', 'main': '#4d6bff', 'dim': '#1b2450',   # Japan, blue
+     'palette': ('#4d6bff', '#1b2f9a', '#cdd8ff', '#1f2a5e', '#111735')},
+    {'key': 'p3', 'name': 'NAGA',   'main': '#2fd45a', 'dim': '#0f3a1c',   # Thai, green
+     'palette': ('#2fd45a', '#12722c', '#c8ffd6', '#123d1e', '#0a2412')},
+    {'key': 'p4', 'name': 'KOI',    'main': '#e04ce8', 'dim': '#3c0f40',   # Japan, magenta
+     'palette': ('#e04ce8', '#7a1580', '#ffcdff', '#3f1044', '#240926')},
 ]
-CHAR_DEFAULTS = ('p1', 'p2')                    # Pre-selected for P1 and P2
+CHAR_DEFAULTS = ('p1', 'p2')                    # Pre-selected for P1 and P2:
+                                                # Thai vs Japan, one of each drawing
 
 # ===========================================
 # SECTION 3G: POWER REGISTRY

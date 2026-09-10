@@ -20,9 +20,11 @@ from config import (ARENA_2P, SPEED_2P, WALL_MARGIN, GROW_PER_FRUIT, FRUIT_SCORE
                     FRAME_MS, BG_COLOR, WALL_COLOR, OBSTACLE_FILL, OBSTACLE_EDGE,
                     TEXT_BRIGHT, TEXT_TAG, TEXT_DIM, TEXT_FAINT, HIGHLIGHT)
 from engine import (wn, go_to_scene, load_shape, new_pen, STATE,
-                    draw_skill_bar, fill_box, write_at, shape_turtle)
+                    draw_skill_bar, fill_box, write_at, shape_turtle,
+                    ImageButton, click_router)
 from audio import sfx
-from entity import Snake, make_fruit, powers_flag, powers_effect, powers_hud_tags
+from entity import (Snake, make_fruit, reroll_fruit, powers_flag, powers_effect,
+                    powers_hud_tags)
 
 # ===========================================
 # SECTION 3: PARAMETERS & PHYSICS
@@ -339,6 +341,7 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
                 gain = int(FRUIT_SCORE * powers_effect(snake, 'score_mult', 1.0))
                 snake.gain_fruit(gain, GROW_PER_FRUIT, SKILL_GAIN_2P)
                 f.goto(random_free_spot(skip=f))
+                reroll_fruit(f)                 # New spot, new fruit - looks only
                 sfx.play('eat')
                 return                          # One fruit per frame, per player
 
@@ -434,6 +437,15 @@ def game_2p_scene(epoch, p1_char, p1_power, p2_char, p2_power, wins=None, histor
         result_pen.clear()
         draw_result(result_pen, p1, p2, round_wins, rounds,
                     match_over['value'], winner)
+
+        # R and M still work; these are the same two actions as buttons, because a
+        # result screen is the one place a player is not already holding the keys.
+        again = ImageButton('btn_playgame', -90, -232, 150, 86,
+                            label='NEXT' if not match_over['value'] else 'AGAIN',
+                            color=HIGHLIGHT)
+        back = ImageButton('btn_menu', 90, -232, 110, 63, label='MENU', color=TEXT_DIM)
+        wn.onscreenclick(click_router((again, do_restart), (back, to_menu)))
+
         sfx.play('win')
         wn.update()
 
